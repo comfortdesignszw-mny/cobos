@@ -1,0 +1,6 @@
+{
+  "name": "Comfort Business Operational System (COBOS)",
+  "description": "Offline-first financial management, accounting, POS, inventory, and cash flow PWA for African SMEs with multi-currency (USD, ZiG, ZAR) and Cloudflare D1 integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

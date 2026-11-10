@@ -1,0 +1,1264 @@
+# PROJECT: COMFORT BUSINESS OPERATIONAL SYSTEM (COBOS)
+### Offline-First Financial Management, Accounting & Business Operations Platform
+
+## 1. PROJECT OVERVIEW
+
+Develop a professional, lightweight, offline-first business financial management application called **Comfort Business Operational System**.
+
+The application is designed primarily for small and medium-sized businesses (SMEs), informal traders, retailers, wholesalers, entrepreneurs and service providers operating in Zimbabwe and other African markets.
+
+The primary objective is to help business owners understand exactly where their money comes from, where it goes, how much profit they make, how much money customers owe them, how much they owe suppliers, and the actual financial position of their businesses.
+
+The application must combine seven major business management systems into one integrated platform:
+
+1. Digital Bookkeeping and Accounting.
+2. Point of Sale (POS).
+3. Inventory and Stock Management.
+4. Customer Debt and Receivables Management.
+5. Supplier and Payables Management.
+6. Cash-Flow Monitoring.
+7. Financial Reporting and Business Analytics.
+
+The system must be designed around simplicity, accuracy, reliability, affordability and offline accessibility.
+
+It must support businesses that operate with limited internet connectivity, older smartphones, low-end computers and multiple payment methods.
+
+### Core Product Philosophy
+
+"Know Your Money. Control Your Business. Grow With Confidence."
+
+The application must make financial management accessible even to business owners without accounting knowledge.
+
+---
+
+# 2. TARGET USERS
+
+Design the application to support:
+
+- Small retail shops.
+- Grocery stores.
+- Mobile phone shops.
+- Hardware stores.
+- Clothing businesses.
+- Wholesalers.
+- Restaurants.
+- Salons and barbershops.
+- Informal traders.
+- Service providers.
+- Small manufacturers.
+- Entrepreneurs and sole traders.
+
+The system must support both single-user businesses and businesses with multiple employees.
+
+---
+
+# 3. SYSTEM ARCHITECTURE AND TECHNOLOGY
+
+Build the application as an offline-first Progressive Web Application (PWA), installable on Android devices, smartphones, tablets and desktop computers.
+
+### Recommended technology stack
+
+Frontend:
+- React.
+- TypeScript.
+- Tailwind CSS.
+- Responsive component architecture.
+-PWA Offline first architecture
+
+Local database:
+- IndexedDB.
+- Dexie.js for local database management.
+
+Backend:
+- Cloudflare Workers.
+- REST API architecture.
+
+Cloud database:
+- Cloudflare D1 (SQLite).
+
+File storage:
+- Cloudflare R2.
+
+Authentication:
+- Email and password.
+- Google authentication where supported.
+
+Offline functionality:
+- Service Workers.
+- IndexedDB.
+- Local transaction queues.
+- Background synchronisation where supported.
+- Cold Start, (No HTTPS Handshake, 100% offline)
+
+Charts:
+- Lightweight charting library.
+-Recharts
+
+Reports:
+- PDF and CSV export.
+
+The architecture should use a modular monolith with clearly separated business modules.
+
+Avoid unnecessary microservices and expensive third-party dependencies.
+
+### Critical Offline-First Requirement
+
+The application must never require an active internet connection to open and perform its primary business functions.
+
+All major operations must work offline, including:
+
+- Recording sales.
+- Recording expenses.
+- Managing inventory.
+- Creating customer accounts.
+- Recording customer debts.
+- Recording customer payments.
+- Managing suppliers.
+- Recording supplier payments.
+- Generating local reports.
+- Viewing transaction histories.
+
+All transactions must first be saved locally.
+
+When connectivity returns, the application must synchronise local changes with the cloud backend.
+
+Never assume a transaction has synchronised simply because internet connectivity is available.
+
+Only mark transactions as synchronised after receiving server confirmation.
+
+---
+
+# 4. USER AUTHENTICATION AND BUSINESS SETUP
+
+Create a secure registration and onboarding process.
+
+### Registration
+
+Required fields:
+
+- Full name.
+- Email address.
+- Password.
+- Business name.
+- Business type.
+- Country.
+- Business location.
+- Primary operating currency.
+
+Allow users to create or join an existing business organisation.
+
+### Business configuration
+
+Allow business owners to configure:
+
+- Business name.
+- Business logo.
+- Business address.
+- Contact information.
+- Business category.
+- Financial reporting period.
+- Default currency.
+- Additional supported currencies.
+- Tax configuration.
+- Receipt information.
+- Stock valuation method.
+
+Support USD  ZiG, and ZAR (S.A Rand) for the Zimbabwean market.
+
+Currencies must be handled independently.
+
+Never automatically combine USD, ZiG, and Rands balances without an explicitly configured exchange rate and clear conversion records.
+
+### User roles
+
+Implement Role-Based Access Control (RBAC).
+
+Roles:
+
+1. Owner / Administrator.
+2. Manager.
+3. Accountant.
+4. Salesperson / Cashier.
+5. Inventory Manager.
+
+Each role must have configurable permissions. Enforce Role Level Security RLS)
+
+For example:
+
+A cashier can record sales but cannot delete financial transactions or access confidential profit reports unless authorised.
+
+---
+
+# 5. MODULE ONE: DIGITAL BOOKKEEPING AND ACCOUNTING
+
+Develop a simple but reliable bookkeeping system.
+
+The module must automatically capture financial transactions generated by other modules.
+
+### Features
+
+A. Income management
+
+Allow users to:
+
+- Record business income.
+- Categorise income.
+- Attach transaction descriptions.
+- Select payment methods.
+- Select transaction currency.
+- Record transaction dates.
+- Attach supporting documents.
+
+B. Expense management
+
+Allow users to record:
+
+- Rent.
+- Electricity.
+- Water.
+- Salaries.
+- Transport.
+- Fuel.
+- Internet.
+- Marketing.
+- Repairs.
+- Purchases.
+- Other operating expenses.
+
+Users must be able to create custom expense categories.
+
+C. Transaction management
+
+Provide a central transaction ledger containing:
+
+- Transaction ID.
+- Transaction date.
+- Transaction type.
+- Description.
+- Category.
+- Amount.
+- Currency.
+- Payment method.
+- Related customer or supplier.
+- Created by.
+- Creation timestamp.
+- Synchronisation status.
+
+Allow authorised users to view, filter and search transactions.
+
+Financial transactions must not be silently deleted or overwritten.
+
+Corrections must create traceable reversal or adjustment entries.
+
+D.  Accounting engine (Most Important. Make the accounting engine the foundation)
+
+Implement double-entry bookkeeping internally.
+
+Every financial event must generate balanced journal entries.
+
+Examples:
+
+Cash sale:
+- Debit Cash/Payment Clearing Account.
+- Credit Sales Revenue.
+
+Credit sale:
+- Debit Accounts Receivable.
+- Credit Sales Revenue.
+
+Inventory purchase on credit:
+- Debit Inventory.
+- Credit Accounts Payable.
+
+Expense paid in cash:
+- Debit Expense Account.
+- Credit Cash Account.
+
+Customer payment:
+- Debit Cash/Bank.
+- Credit Accounts Receivable.
+
+Supplier payment:
+- Debit Accounts Payable.
+- Credit Cash/Bank.
+
+Ensure that every journal entry balances.
+
+E. Financial account categories
+
+Provide a chart of accounts covering:
+
+- Assets.
+- Liabilities.
+- Equity.
+- Revenue.
+- Cost of Goods Sold.
+- Operating Expenses.
+
+Allow custom accounts where appropriate.
+
+F. Accounting dashboard
+
+Display:
+
+- Total income.
+- Total expenses.
+- Gross profit.
+- Net profit.
+- Outstanding customer debts.
+- Outstanding supplier balances.
+- Current cash balances.
+- Recent financial transactions.
+
+All calculations must respect transaction dates, currencies and accounting rules.
+
+---
+
+# 6. MODULE TWO: POINT OF SALE (POS)
+
+Develop a fast, intuitive Point of Sale system.
+
+The POS interface must be optimised for rapid sales processing.
+
+### POS interface
+
+Provide:
+
+- Product search.
+- Product categories.
+- Barcode search and scanning where hardware supports it.
+- Product images.
+- Product prices.
+- Available stock.
+- Shopping cart.
+- Quantity adjustment.
+- Discounts with permission controls.
+- Tax configuration.
+- Subtotal.
+- Final total.
+
+### Checkout
+
+Allow customers to pay through:
+
+- Cash.
+- Bank transfer.
+- Mobile money.
+- Card.
+- Other configured payment methods.
+- Split payments using multiple methods.
+
+Payment methods must be configurable by the business.
+
+Do not assume the application can automatically verify external payments without a supported provider integration.
+
+### Receipt generation
+
+Generate professional receipts containing:
+
+- Business name.
+- Business logo.
+- Contact information.
+- Receipt number.
+- Transaction date.
+- Product descriptions.
+- Quantities.
+- Unit prices.
+- Discounts.
+- Taxes where applicable.
+- Payment breakdown.
+- Total paid.
+- Outstanding balance where applicable.
+
+Support:
+
+- Thermal printing where supported.
+- Standard printers.
+- PDF receipts.
+- Digital receipts.
+
+### POS transaction rules
+
+When a sale is completed:
+
+1. Generate a unique sale ID.
+2. Save the sale locally.
+3. Update inventory.
+4. Record the payment.
+5. Update cash balances.
+6. Generate accounting journal entries.
+7. Update sales reports.
+8. If credit is involved, update customer receivables.
+9. Add the transaction to the synchronisation queue.
+
+All related operations must be atomic locally.
+
+Prevent duplicate sales during retries or synchronisation.
+
+---
+
+# 7. MODULE THREE: INVENTORY AND STOCK MANAGEMENT
+
+Develop an inventory management system integrated with POS and accounting.
+
+### Product management
+
+Allow users to create products with:
+
+- Product name.
+- SKU.
+- Barcode.
+- Product category.
+- Description.
+- Product image.
+- Purchase cost.
+- Selling price.
+- Current quantity.
+- Minimum stock level.
+- Supplier.
+- Unit of measurement.
+- Product status.
+
+Support:
+
+- Individual products.
+- Product variants.
+- Multiple units of measurement.
+- Services that do not require stock tracking.
+
+### Stock operations
+
+Implement:
+
+- Stock purchases.
+- Stock additions.
+- Stock reductions.
+- Stock transfers between locations.
+- Stock adjustments.
+- Damaged stock records.
+- Returned stock.
+- Stocktaking.
+
+Every stock movement must have a traceable record.
+
+### Inventory valuation
+
+Support:
+
+- Weighted average cost as the initial valuation method.
+- FIFO as an optional future enhancement.
+
+Calculate:
+
+- Total inventory quantity.
+- Inventory value.
+- Cost of goods sold.
+- Estimated gross profit.
+- Low-stock products.
+- Out-of-stock products.
+
+### Stock alerts
+
+Notify authorised users when:
+
+- Products approach minimum stock levels.
+- Products are out of stock.
+- Stock adjustments occur.
+- Stock quantities become negative.
+
+Prevent negative stock by default, with an optional owner-controlled override that is logged.
+
+---
+
+# 8. MODULE FOUR: CUSTOMER DEBT AND RECEIVABLES MANAGEMENT
+
+Create a complete customer account management system.
+
+This module must help businesses manage customers who purchase products or services on credit.
+
+### Customer management
+
+Each customer profile should contain:
+
+- Customer ID.
+- Full name.
+- Phone number.
+- Email address (optional).
+- Address (optional).
+- Customer notes.
+- Account creation date.
+- Credit limit.
+- Outstanding balance.
+- Transaction history.
+
+### Customer transactions
+
+Allow businesses to:
+
+- Record credit sales.
+- Record customer deposits.
+- Record partial payments.
+- Record full payments.
+- Record credit notes.
+- Issue invoices.
+- Generate statements.
+- Track overdue accounts.
+
+### Debt management dashboard
+
+Display:
+
+- Total outstanding debts.
+- Current debts.
+- Overdue debts.
+- Customers with the highest outstanding balances.
+- Recent payments.
+- Expected collections.
+
+Provide debt ageing categories:
+
+- Current.
+- 1–30 days overdue.
+- 31–60 days overdue.
+- 61–90 days overdue.
+- More than 90 days overdue.
+
+### Payment reminders
+
+Allow users to generate payment reminders.
+
+Support:
+
+- Copyable WhatsApp reminder messages and WhatsApp deeplink feature to send the DM to customer directly at the tap of a button.
+- SMS integrations where available.
+- Email reminders.
+- Manual follow-up records.
+
+Do not send automated messages without user consent and appropriate integrations.
+
+### Customer statements
+
+Generate printable and downloadable customer statements showing:
+
+- Opening balance.
+- Purchases.
+- Payments.
+- Adjustments.
+- Closing balance.
+
+---
+
+# 9. MODULE FIVE: SUPPLIER AND ACCOUNTS PAYABLE MANAGEMENT
+
+Develop a supplier management system.
+
+### Supplier profiles
+
+Each supplier must have:
+
+- Supplier ID.
+- Supplier name.
+- Contact person.
+- Phone number.
+- Email address.
+- Physical address.
+- Payment terms.
+- Supplier notes.
+- Outstanding balance.
+
+### Supplier transactions
+
+Allow users to:
+
+- Record purchases.
+- Record supplier invoices.
+- Record credit purchases.
+- Record deposits.
+- Record partial payments.
+- Record full payments.
+- Record purchase returns.
+- Record supplier adjustments.
+
+### Supplier dashboard
+
+Display:
+
+- Total purchases.
+- Outstanding supplier balances.
+- Overdue supplier payments.
+- Upcoming payment obligations.
+- Supplier transaction histories.
+
+### Purchase management
+
+When stock is purchased:
+
+1. Create a purchase record.
+2. Update inventory quantities.
+3. Update inventory valuation.
+4. Create accounting entries.
+5. Update supplier balances if purchased on credit.
+6. Update cash balances if paid immediately.
+
+Support partial deliveries and partial supplier payments.
+
+---
+
+# 10. MODULE SIX: CASH-FLOW MONITORING
+
+Develop an integrated cash-flow monitoring system.
+
+This module must help business owners understand their actual financial position.
+
+### Cash management
+
+Support multiple financial accounts:
+
+- Physical cash.
+- Bank accounts.
+- Mobile money accounts.
+- Other payment accounts.
+
+Each account must have its own currency.
+
+### Cash-flow dashboard
+
+Display:
+
+- Opening balances.
+- Total money received.
+- Total money spent.
+- Transfers between accounts.
+- Closing balances.
+- Outstanding customer collections.
+- Upcoming supplier payments.
+
+### Cash-flow reports
+
+Provide:
+
+- Daily cash-flow report.
+- Weekly cash-flow report.
+- Monthly cash-flow report.
+- Custom date-range reports.
+
+### Cash-flow forecasting
+
+Provide a simple forecast based on:
+
+- Expected customer payments.
+- Upcoming supplier obligations.
+- Recurring expenses.
+- Recorded operating expenses.
+- Scheduled payments.
+
+Clearly distinguish projected cash flow from actual cash balances.
+
+Do not present unpaid invoices as available cash.
+
+### Account reconciliation
+
+Allow authorised users to compare recorded balances against manually entered or imported bank/mobile money statements.
+
+Identify:
+
+- Unmatched transactions.
+- Duplicate entries.
+- Missing transactions.
+- Balance differences.
+
+---
+
+# 11. MODULE SEVEN: FINANCIAL REPORTING AND BUSINESS ANALYTICS
+
+Develop a reporting system that turns business transactions into useful financial information.
+
+### Required reports
+
+1. Daily sales report.
+2. Weekly sales report.
+3. Monthly sales report.
+4. Income statement.
+5. Balance sheet.
+6. Cash-flow statement.
+7. Expense report.
+8. Profit and loss report.
+9. Inventory valuation report.
+10. Cost of goods sold report.
+11. Customer debt report.
+12. Supplier outstanding balances.
+13. Payment method report.
+14. Best-selling products.
+15. Slow-moving products.
+16. Stock movement report.
+17. Customer purchase history.
+
+### Business intelligence dashboard
+
+Display visual summaries:
+
+- Sales trends.
+- Expense trends.
+- Profit trends.
+- Cash-flow trends.
+- Inventory performance.
+- Customer debt performance.
+- Supplier obligations.
+
+### Business insights
+
+Provide automatically calculated insights such as:
+
+- Your expenses increased by 15% compared with last month.
+- Your highest-selling product is Product A.
+- You have 12 customers with overdue balances.
+- Your inventory value is $3,500.
+- Your gross profit margin is 24%.
+- Your largest expense category is transport.
+
+Insights must be based on actual recorded data.
+
+Avoid generating unsupported financial conclusions.
+
+### Exporting
+
+Support:
+
+- PDF.
+- CSV.
+- Printable reports.
+
+Allow users to select date ranges and currencies.
+
+---
+
+# 12. INTEGRATED FINANCIAL TRANSACTION ENGINE
+
+This is one of the most important components of the entire application.
+
+All modules must share one financial transaction engine.
+
+Do not build isolated modules that maintain conflicting financial balances.
+
+For example:
+
+When a cashier sells a product:
+
+POS must communicate with:
+
+- Inventory.
+- Accounting.
+- Customer management.
+- Cash management.
+- Reporting.
+
+The system must automatically update all related records.
+
+### Example: Cash Sale
+
+A customer purchases goods worth $100 and pays in cash.
+
+The application must:
+
+1. Create the sale.
+2. Reduce inventory.
+3. Record $100 in cash.
+4. Recognise revenue.
+5. Recognise the cost of goods sold.
+6. Calculate gross profit.
+7. Generate accounting journal entries.
+8. Update reports.
+
+### Example: Credit Sale
+
+A customer purchases goods worth $200 on credit.
+
+The application must:
+
+1. Create the sale.
+2. Reduce inventory.
+3. Record accounts receivable of $200.
+4. Recognise revenue.
+5. Recognise cost of goods sold.
+6. Update the customer's account.
+7. Generate accounting entries.
+8. Include the outstanding balance in receivables reports.
+
+The application must never treat an unpaid credit sale as money already received.
+
+### Example: Partial Customer Payment
+
+A customer owing $200 pays $75.
+
+The system must:
+
+- Record the payment.
+- Reduce outstanding debt to $125.
+- Increase the selected cash/payment account by $75.
+- Update the customer's statement.
+- Update accounts receivable.
+- Generate accounting entries.
+- Update cash-flow reports.
+
+All operations must be traceable and auditable.
+
+---
+
+# 13. DATABASE DESIGN
+
+Design a relational database with clear entity relationships.
+
+The initial database should include the following entities:
+
+IDENTITY AND ORGANISATION:
+- users
+- organisations
+- organisation_members
+- roles
+- permissions
+- user_sessions
+
+BUSINESS CONFIGURATION:
+- business_profiles
+- business_settings
+- currencies
+- exchange_rates
+- payment_methods
+
+ACCOUNTING:
+- chart_of_accounts
+- journal_entries
+- journal_entry_lines
+- financial_transactions
+- expense_categories
+- income_categories
+
+POS:
+- sales
+- sale_items
+- sale_payments
+- receipts
+
+INVENTORY:
+- products
+- product_categories
+- product_variants
+- inventory_locations
+- stock_movements
+- stock_balances
+- stock_adjustments
+
+CUSTOMERS:
+- customers
+- customer_invoices
+- customer_payments
+- customer_credit_notes
+- customer_statements
+
+SUPPLIERS:
+- suppliers
+- purchase_orders
+- purchases
+- purchase_items
+- supplier_payments
+- supplier_invoices
+
+CASH MANAGEMENT:
+- financial_accounts
+- account_transfers
+- cash_reconciliations
+
+SYSTEM:
+- sync_queue
+- audit_logs
+- notifications
+- subscriptions
+- document_attachments
+
+Every business-related entity must include organisation_id.
+
+Use UUIDs or another globally unique identifier strategy.
+
+Include:
+
+- Primary keys.
+- Foreign keys.
+- Appropriate indexes.
+- Unique constraints.
+- Created timestamps.
+- Updated timestamps.
+- Soft-delete fields where appropriate.
+- Transaction versioning where necessary.
+
+Enforce organisation-level data isolation on the backend.
+
+---
+
+# 14. OFFLINE SYNCHRONISATION ENGINE
+
+Develop a reliable two-way synchronisation system.
+
+### Local operation
+
+Every transaction must first be saved to IndexedDB.
+
+Every locally created or modified record must have:
+
+- Unique ID.
+- Organisation ID.
+- Created timestamp.
+- Updated timestamp.
+- Version number.
+- Synchronisation status.
+- Operation type.
+
+### Synchronisation process
+
+When connectivity becomes available:
+
+1. Detect internet availability.
+2. Retrieve pending operations.
+3. Send queued operations to the backend.
+4. Validate permissions and data.
+5. Check transaction IDs for duplicates.
+6. Apply valid operations inside database transactions.
+7. Return server confirmation.
+8. Update local records.
+9. Mark successful operations as synchronised.
+10. Retry failed operations safely.
+
+### Conflict resolution
+
+Implement explicit conflict handling.
+
+For financial records:
+
+- Never silently overwrite transactions.
+- Use immutable transaction IDs.
+- Use reversal and adjustment records.
+- Preserve transaction histories.
+- Prevent duplicate payment processing.
+
+For editable non-financial records, such as product descriptions, use version checks and a defined conflict-resolution policy.
+
+### Offline status indicators
+
+Show:
+
+- Online.
+- Offline.
+- Synchronising.
+- Synchronisation failed.
+- Pending transactions.
+
+Allow users to view pending synchronisation records.
+
+---
+
+# 15. SECURITY AND DATA PROTECTION
+
+Implement:
+
+- Secure password hashing.
+- Authentication and session management.
+- Role-based permissions.
+- Backend authorisation.
+- Organisation-level data isolation.
+- HTTPS.
+- Input validation.
+- API rate limiting.
+- Audit logs.
+- Secure document access.
+- Database backups.
+- Account recovery.
+
+Never expose sensitive financial information to unauthorised users. (Role Level Security (RSL))
+
+Do not trust client-side calculations or permissions.
+
+All critical financial operations must be validated by the backend when synchronised.
+
+Implement a clear backup and recovery mechanism.
+
+---
+
+# 16. USER INTERFACE AND USER EXPERIENCE
+
+The application must have a modern, professional, minimal and intuitive interface.
+
+It must not resemble complicated traditional accounting software.
+
+### Design principles
+
+- Clean dashboard.
+- Minimal navigation.
+- Large readable numbers.
+- Clear financial summaries.
+- Simple forms.
+- Responsive layouts.
+- Fast loading.
+- Accessible colour contrast.
+- Touch-friendly controls.
+- Consistent visual hierarchy.
+
+### Suggested colour palette
+
+Use a professional financial technology theme:
+
+- Primary: Dark navy blue.
+- Secondary: Cyan.
+- Background: White and very light grey.
+- Success: Green.
+- Warning: Amber.
+- Error: Red.
+
+### Main navigation
+
+Create the following navigation structure:
+
+1. Dashboard.
+2. Point of Sale.
+3. Transactions.
+4. Inventory.
+5. Customers.
+6. Suppliers.
+7. Cash Flow.
+8. Reports.
+9. Settings.
+
+On mobile devices, use a compact bottom navigation for the most frequently used sections, with additional sections accessible through a More menu.
+
+### Dashboard layout
+
+The home dashboard should display:
+
+TOP SUMMARY CARDS:
+- Today's Sales.
+- Today's Expenses.
+- Estimated Profit.
+- Cash Available.
+- Customer Debts.
+- Supplier Debts.
+
+MIDDLE SECTION:
+- Sales versus expenses chart.
+- Cash-flow chart.
+- Recent transactions.
+
+BOTTOM SECTION:
+- Low-stock alerts.
+- Overdue customer accounts.
+- Upcoming supplier payments.
+- Business insights.
+
+Every financial figure must clearly indicate its currency.
+
+---
+
+# 17. SUBSCRIPTION AND MONETISATION
+
+Implement a subscription-ready architecture.
+
+Initial plans:
+
+FREE:
+- Basic bookkeeping.
+- Limited monthly transactions.
+- Basic inventory.
+- Basic reports.
+- One business user.
+
+STARTER:
+- Full bookkeeping.
+- POS.
+- Inventory management.
+- Customer debt management.
+- Supplier management.
+
+BUSINESS:
+- All Starter features.
+- Advanced reporting.
+- Multiple employees.
+- Cash-flow forecasting.
+- Advanced inventory management.
+
+PROFESSIONAL:
+- All Business features.
+- Multiple branches.
+- Advanced permissions.
+- Advanced analytics.
+- Accountant access.
+
+Make prices configurable from an administrative control panel.
+
+Do not hardcode subscription prices.
+
+Allow a free trial and a configurable grace period.
+
+The application must remain usable for viewing and exporting existing records if a subscription expires.
+
+Never lock users out of their financial history.
+
+Payment gateway integration can be implemented as a separate phase after the MVP is validated.
+
+---
+
+# 18. MVP DEVELOPMENT PRIORITIES
+
+Although the application is designed to support all seven modules, implement them in carefully controlled phases.
+
+PHASE 1 — CORE FINANCIAL FOUNDATION:
+- Authentication.
+- Business registration.
+- Organisation management.
+- User roles.
+- Currency configuration.
+- Local database.
+- Offline synchronisation.
+- Accounting engine.
+
+PHASE 2 — DAILY BUSINESS OPERATIONS:
+- POS.
+- Digital bookkeeping.
+- Expense recording.
+- Inventory management.
+- Customer management.
+
+PHASE 3 — FINANCIAL MANAGEMENT:
+- Customer debts.
+- Supplier management.
+- Cash-flow monitoring.
+- Account reconciliation.
+
+PHASE 4 — BUSINESS INTELLIGENCE:
+- Financial reporting.
+- Profit and loss.
+- Balance sheet.
+- Cash-flow statement.
+- Business analytics.
+- PDF and CSV exports.
+
+PHASE 5 — COMMERCIAL LAUNCH:
+- Subscription management.
+- Administrative dashboard.
+- Usage monitoring.
+- Customer support.
+- Production security testing.
+
+All seven major business functions must be represented in the MVP release, even if advanced functionality is introduced progressively.
+
+---
+
+# 19. TESTING AND QUALITY ASSURANCE
+
+Test the following scenarios:
+
+1. User registers without internet access where local onboarding permits.
+2. User records sales while offline.
+3. User records expenses while offline.
+4. User sells stock and inventory updates correctly.
+5. User makes a credit sale.
+6. Customer makes a partial payment.
+7. Supplier receives a partial payment.
+8. User records a stock purchase.
+9. User synchronises multiple offline transactions.
+10. Synchronisation is interrupted midway.
+11. Synchronisation retries without duplicating transactions.
+12. Two employees modify records.
+13. An unauthorised user attempts to access financial reports.
+14. A business uses USD and ZiG.
+15. Reports calculate correctly across different date ranges.
+16. Journal entries always balance.
+17. Account balances reconcile with their underlying transactions.
+18. The application operates on low-end Android devices.
+
+Test the application with realistic business datasets.
+
+Do not declare the application production-ready until financial calculations, offline operations, security and synchronisation have been thoroughly tested.
+
+---
+
+# 20. FINAL DEVELOPMENT INSTRUCTIONS
+
+Build a complete, functional MVP rather than a static UI demonstration.
+
+All buttons, forms, dashboards, calculations, navigation items and business operations must work.
+
+Do not use fake financial data in production.
+
+Seed sample data only in a clearly labelled demonstration environment.
+
+Implement actual database persistence.
+
+Use reusable components and maintainable code.
+
+Keep business logic separate from presentation logic.
+
+Document all API endpoints and database relationships.
+
+Provide clear error messages and transaction confirmation feedback.
+
+Prioritise financial accuracy over visual effects.
+
+The final result must be a professional, lightweight, offline-first financial management system that an actual small business can use to manage its daily operations.
+
+**Success criterion: A business owner should be able to run their daily sales, expenses, inventory, customer debts, supplier obligations and financial reporting from one application, even when internet connectivity is unavailable.**
+
+Make the accounting engine the foundation
+This is the most important technical decision.
+
+Do not allow POS, inventory, customers and suppliers to maintain independent financial balances.
+
+Everything should feed into one accounting engine.
+
+For example:
+Action	Automatic result
+Sell product	Revenue increases, stock decreases
+Buy stock	Inventory increases
+Record expense	Expense increases
+Sell on credit	Customer debt increases
+Receive customer payment	Customer debt decreases, cash increases
+Pay supplier	Supplier debt decreases, cash decreases
+
+
+This prevents conflicting financial records.
+2. Handle multiple currencies correctly
+For Zimbabwe, USD and ZiG support is particularly important.
+
+Never combine different currency balances as if they were equivalent.
+
+For example:
+- Cash USD: $500
+- Cash ZiG: ZiG 10,000
+Display them separately.
+
+If exchange conversion is required, store the exchange rate, source, date and original transaction amount.
+3. Protect financial transaction history
+I recommend immutable financial transactions.
+
+If someone accidentally records a $100 sale instead of a $10 sale, they should not simply overwrite the original financial record.
+
+The application should support reversing the incorrect transaction and recording the correct one.
+
+This is important for accountability and auditability.
+4. Prioritise lightweight performance
+Your target market includes businesses using older Android smartphones.
+
+Therefore:
+- Avoid unnecessarily large JavaScript bundles.
+- Lazy-load application modules.
+- Compress images.
+- Minimise database queries.
+- Cache frequently used information.
+- Avoid unnecessary animations.
+- Ensure POS works quickly without network requests.
+5. Build for Zimbabwe first, but architect for Africa
+Keep the following configurable:
+- Country.
+- Currency.
+- Tax rules.
+- Date formats.
+- Payment methods.
+- Financial reporting settings.
+- Business registration information.
+This will make future expansion into Zambia, Botswana, Malawi and other African markets easier
