@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { db, initializeDatabase, DEFAULT_BUSINESS_PROFILE } from '../db/cobosDb';
 import { syncEngine } from '../services/syncEngine';
-import { AuthService, SEED_USERS } from '../services/authService';
+import { AuthService, ADMIN_EMAIL } from '../services/authService';
 import type { BusinessProfile, CurrencyCode, UserRole, User, Sale } from '../types';
 
 export interface AppContextType {

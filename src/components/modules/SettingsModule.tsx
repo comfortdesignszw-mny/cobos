@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { exportDatabaseBackup, importDatabaseBackup, initializeDatabase } from '../../db/cobosDb';
+import { exportDatabaseBackup, importDatabaseBackup, initializeDatabase, clearAllUserData } from '../../db/cobosDb';
 import {
   Settings,
   Building,
@@ -114,12 +114,12 @@ export const SettingsModule: React.FC = () => {
     reader.readAsText(file);
   };
 
-  const handleResetDemoData = async () => {
-    const confirmed = confirm('Are you sure you want to reset the database and restore default Zimbabwean SME demo data?');
+  const handleClearAllData = async () => {
+    const confirmed = confirm('Are you sure you want to clear all transactions, sales, and products? Your chart of accounts and business setup will remain ready for clean operations.');
     if (confirmed) {
-      await initializeDatabase(true);
+      await clearAllUserData();
       triggerRefresh();
-      alert('Database reset with clean demo data.');
+      alert('All transactions and operational data cleared. System ready for live production.');
     }
   };
 
@@ -442,11 +442,11 @@ export const SettingsModule: React.FC = () => {
           </label>
 
           <button
-            onClick={handleResetDemoData}
+            onClick={handleClearAllData}
             className="px-4 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 font-semibold flex items-center gap-2 transition ml-auto"
           >
             <RotateCcw className="w-4 h-4" />
-            <span>Reset Demo Data</span>
+            <span>Clear Operational Records</span>
           </button>
         </div>
       </div>

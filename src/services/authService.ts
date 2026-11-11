@@ -4,7 +4,7 @@ import type { User, UserRole } from '../types';
 
 /**
  * Normalizes phone number input into the required @cobos.zw email format
- * E.g., "+263 77 212 3456" or "0772123456" -> "263772123456@cobos.zw"
+ * E.g., "+263 77 282 4132" or "0772824132" -> "263772824132@cobos.zw"
  */
 export function normalizePhoneToCobosEmail(input: string): { email: string; rawPhone: string; isPhone: boolean } {
   const trimmed = input.trim();
@@ -17,7 +17,7 @@ export function normalizePhoneToCobosEmail(input: string): { email: string; rawP
   }
 
   let digits = trimmed.replace(/\D/g, '');
-  // In Zimbabwe, mobile numbers starting with 0 (e.g. 0772123456) map to 263772123456
+  // In Zimbabwe, mobile numbers starting with 0 (e.g. 0772824132) map to 263772824132
   if (digits.startsWith('0') && digits.length === 10) {
     digits = '263' + digits.substring(1);
   } else if (!digits.startsWith('263') && digits.length === 9) {
@@ -32,82 +32,54 @@ export function normalizePhoneToCobosEmail(input: string): { email: string; rawP
   };
 }
 
-export const SEED_USERS: User[] = [
-  {
-    id: 'usr_owner_comfort',
-    name: 'Comfort Ncube',
-    email: '263772123456@cobos.zw',
-    phone: '+263 77 212 3456',
-    role: 'owner',
-    organisationId: 'org_default',
-    authProvider: 'clerk_phone',
-  },
-  {
-    id: 'usr_manager_tinashe',
-    name: 'Tinashe Hove',
-    email: '263773456789@cobos.zw',
-    phone: '+263 77 345 6789',
-    role: 'manager',
-    organisationId: 'org_default',
-    authProvider: 'clerk_phone',
-  },
-  {
-    id: 'usr_cashier_grace',
-    name: 'Grace Tsuro',
-    email: '263712345678@cobos.zw',
-    phone: '+263 71 234 5678',
-    role: 'cashier',
-    organisationId: 'org_default',
-    authProvider: 'clerk_phone',
-  },
-  {
-    id: 'usr_accountant_ruvimbo',
-    name: 'Ruvimbo Shumba',
-    email: 'accountant@cobos.zw',
-    phone: '+263 77 987 6543',
-    role: 'accountant',
-    organisationId: 'org_default',
-    authProvider: 'clerk_email',
-  },
-  {
-    id: 'usr_inventory_farai',
-    name: 'Farai Gumbo',
-    email: 'inventory@cobos.zw',
-    phone: '+263 78 456 7890',
-    role: 'inventory_manager',
-    organisationId: 'org_default',
-    authProvider: 'clerk_email',
-  },
-];
+export const ADMIN_EMAIL = 'comfort.designszw@gmail.com';
+
+// Clean production administrator user
+export const INITIAL_ADMIN_USER: User = {
+  id: 'usr_admin_comfort',
+  name: 'Comfort Ncube',
+  email: ADMIN_EMAIL,
+  phone: '+263 77 282 4132',
+  role: 'owner',
+  organisationId: 'org_default',
+  authProvider: 'clerk_email',
+};
 
 const AUTH_STORAGE_KEY = 'cobos_active_session_user';
 
 export class AuthService {
   /**
-   * Initializes users in Dexie if empty
+   * Initializes users table with Admin if empty
    */
   static async init() {
-    const count = await db.users.count();
-    if (count === 0) {
-      await db.users.bulkPut(SEED_USERS);
+    const existingAdmin = await db.users.where('email').equalsIgnoreCase(ADMIN_EMAIL).first();
+    if (!existingAdmin) {
+      await db.users.put(INITIAL_ADMIN_USER);
     }
   }
 
   /**
-   * Get currently active session user from localStorage or fallback to default Owner
+   * Get currently active session user from localStorage or fallback to Comfort Ncube (Admin)
    */
   static getActiveSessionUser(): User {
     if (typeof window !== 'undefined') {
       try {
         const stored = localStorage.getItem(AUTH_STORAGE_KEY);
         if (stored) {
-          return JSON.parse(stored);
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.email) {
+            // Ensure comfort.designszw@gmail.com is strictly an Admin/Owner
+            if (parsed.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+              parsed.role = 'owner';
+            }
+            return parsed;
+          }
         }
       } catch (e) {
         // Fallback
       }
     }
-    return SEED_USERS[0]; // Comfort Ncube (Owner)
+    return INITIAL_ADMIN_USER;
   }
 
   /**
@@ -115,6 +87,10 @@ export class AuthService {
    */
   static setActiveSessionUser(user: User) {
     if (typeof window !== 'undefined') {
+      // Comfort's email is guaranteed Admin
+      if (user.email && user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+        user.role = 'owner';
+      }
       localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
     }
   }
@@ -131,7 +107,7 @@ export class AuthService {
   /**
    * Sign In via Phone OR Email and Password
    */
-  static async signIn(identifier: string, password: string): Promise<User> {
+  static async signIn(identifier: string, _password?: string): Promise<User> {
     await this.init();
     const { email, rawPhone, isPhone } = normalizePhoneToCobosEmail(identifier);
 
@@ -148,19 +124,31 @@ export class AuthService {
     }
 
     if (!user) {
-      // If user doesn't exist yet, auto-provision user to support frictionless onboarding
-      const displayName = isPhone ? `User ${rawPhone}` : identifier.split('@')[0];
+      // If user doesn't exist yet, provision account cleanly
+      const isComfortAdmin = email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+      const displayName = isComfortAdmin
+        ? 'Comfort Ncube'
+        : isPhone
+        ? `User ${rawPhone}`
+        : identifier.split('@')[0];
+
       user = {
         id: 'usr_' + generateUUID(),
         name: displayName,
         email,
         phone: isPhone ? rawPhone : undefined,
-        role: 'owner',
+        role: isComfortAdmin ? 'owner' : 'cashier',
         organisationId: 'org_default',
         authProvider: isPhone ? 'clerk_phone' : 'clerk_email',
       };
       await db.users.put(user);
       await queueSyncItem('user' as any, user.id, 'INSERT', user);
+    }
+
+    // Guarantee admin role for comfort.designszw@gmail.com
+    if (user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      user.role = 'owner';
+      await db.users.update(user.id, { role: 'owner' });
     }
 
     this.setActiveSessionUser(user);
@@ -182,9 +170,9 @@ export class AuthService {
     const newUser: User = {
       id: 'usr_' + generateUUID(),
       name: params.fullName.trim(),
-      email, // Converted into phone@cobos.zw in database
+      email, // Normalized phone email format in database
       phone: rawPhone,
-      role: params.role || 'owner',
+      role: params.role || 'cashier',
       organisationId: 'org_default',
       authProvider: 'clerk_phone',
     };
@@ -207,12 +195,13 @@ export class AuthService {
   }): Promise<User> {
     await this.init();
     const cleanEmail = params.email.trim().toLowerCase();
+    const isComfortAdmin = cleanEmail === ADMIN_EMAIL.toLowerCase();
 
     const newUser: User = {
       id: 'usr_' + generateUUID(),
       name: params.fullName.trim(),
       email: cleanEmail,
-      role: params.role || 'owner',
+      role: isComfortAdmin ? 'owner' : params.role || 'cashier',
       organisationId: 'org_default',
       authProvider: 'clerk_email',
     };
@@ -229,8 +218,9 @@ export class AuthService {
    */
   static async signInWithGoogle(customProfile?: { name: string; email: string; avatarUrl?: string }): Promise<User> {
     await this.init();
-    const email = customProfile?.email || 'comfort.designszw@gmail.com';
-    const name = customProfile?.name || 'Comfort Ncube (Google Account)';
+    const email = customProfile?.email || ADMIN_EMAIL;
+    const isComfortAdmin = email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+    const name = customProfile?.name || (isComfortAdmin ? 'Comfort Ncube' : email.split('@')[0]);
 
     let user = await db.users.where('email').equalsIgnoreCase(email).first();
 
@@ -239,13 +229,16 @@ export class AuthService {
         id: 'usr_' + generateUUID(),
         name,
         email,
-        role: 'owner',
+        role: isComfortAdmin ? 'owner' : 'cashier',
         organisationId: 'org_default',
         authProvider: 'clerk_google',
         avatarUrl: customProfile?.avatarUrl,
       };
       await db.users.put(user);
       await queueSyncItem('user' as any, user.id, 'INSERT', user);
+    } else if (isComfortAdmin && user.role !== 'owner') {
+      user.role = 'owner';
+      await db.users.update(user.id, { role: 'owner' });
     }
 
     this.setActiveSessionUser(user);

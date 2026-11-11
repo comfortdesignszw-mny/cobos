@@ -30,9 +30,14 @@ export const Header: React.FC = () => {
 
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-slate-800 bg-slate-900 px-4 sm:px-6 py-3">
-      {/* Zone 1: Clean Brand Wordmark */}
+      {/* Zone 1: Clean Brand Wordmark with 3D App Icon */}
       <div className="flex items-center gap-3">
-        <a href="/" className="text-base font-bold tracking-tight text-white whitespace-nowrap shrink-0 flex items-center gap-2">
+        <a href="/" className="text-base font-bold tracking-tight text-white whitespace-nowrap shrink-0 flex items-center gap-2.5">
+          <img
+            src="/pwa-192x192.png"
+            alt="COBOS Icon"
+            className="w-7 h-7 rounded-lg shadow-sm border border-cyan-500/30 object-cover"
+          />
           <span className="font-mono text-cyan-400 font-black">COBOS</span>
           <span className="text-slate-400 font-normal hidden sm:inline text-xs">
             {profile.name}

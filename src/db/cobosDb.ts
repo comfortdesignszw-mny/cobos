@@ -65,7 +65,7 @@ export class CobosDatabase extends Dexie {
 
 export const db = new CobosDatabase();
 
-// Default Chart of Accounts Template
+// Clean Standard Chart of Accounts Foundation for Double-Entry Bookkeeping
 export const DEFAULT_CHART_OF_ACCOUNTS: Account[] = [
   // Assets
   { id: 'acc_cash_usd', code: '1001', name: 'Cash in Hand (USD)', type: 'asset', currency: 'USD', balance: 0, isSystem: true },
@@ -108,38 +108,38 @@ export const DEFAULT_CHART_OF_ACCOUNTS: Account[] = [
 export const DEFAULT_CASH_ACCOUNTS: CashAccount[] = [
   { id: 'cash_usd_drawer', name: 'Main Till Cash (USD)', type: 'physical_cash', currency: 'USD', balance: 0, isDefault: true },
   { id: 'cash_zig_drawer', name: 'Main Till Cash (ZiG)', type: 'physical_cash', currency: 'ZiG', balance: 0, isDefault: true },
-  { id: 'cash_ecocash_merchant', name: 'EcoCash Merchant (ZiG)', type: 'mobile_money', currency: 'ZiG', balance: 0, accountNumber: '0772 123 456' },
-  { id: 'cash_stanbic_usd', name: 'Stanbic Bank USD Nostro', type: 'bank', currency: 'USD', balance: 0, accountNumber: '91400034821' },
+  { id: 'cash_ecocash_merchant', name: 'EcoCash Merchant (ZiG)', type: 'mobile_money', currency: 'ZiG', balance: 0, accountNumber: '0772 824 132' },
+  { id: 'cash_bank_usd', name: 'Business Bank Account (USD)', type: 'bank', currency: 'USD', balance: 0, accountNumber: '91400034821' },
 ];
 
 export const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
   id: 'org_default',
-  name: 'Comfort Enterprises & Wholesale',
+  name: 'Comfort Enterprises',
   tagline: 'Know Your Money. Control Your Business. Grow With Confidence.',
-  category: 'Wholesale & Retail Groceries / Hardware',
+  category: 'Commercial Wholesale, Retail & Services',
   country: 'Zimbabwe',
   city: 'Harare',
-  address: 'Shop 14, Kwame Nkrumah Ave / 4th Street, Harare CBD',
-  phone: '+263 77 212 3456',
+  address: 'CBD Commercial Centre, Harare',
+  phone: '+263 77 282 4132',
   email: 'comfort.designszw@gmail.com',
   taxNumber: 'BP200-984712-ZW',
   defaultCurrency: 'USD',
   supportedCurrencies: ['USD', 'ZiG', 'ZAR'],
   exchangeRates: {
     USD: 1.0,
-    ZiG: 28.5, // 1 USD = 28.50 ZiG
-    ZAR: 18.2, // 1 USD = 18.20 ZAR
+    ZiG: 28.5,
+    ZAR: 18.2,
   },
-  receiptFooter: 'Thank you for shopping with Comfort Enterprises! Goods once sold cannot be returned without original receipt.',
+  receiptFooter: 'Thank you for choosing Comfort Enterprises. Please retain this receipt for warranty and returns.',
 };
 
 /**
- * Initializes the database and seeds realistic demo data if empty
+ * Initializes the clean database structure without fake demo transactions
  */
-export async function initializeDatabase(forceSeed = false) {
+export async function initializeDatabase(forceReset = false) {
   const profileCount = await db.businessProfiles.count();
-  if (profileCount === 0 || forceSeed) {
-    if (forceSeed) {
+  if (profileCount === 0 || forceReset) {
+    if (forceReset) {
       await db.businessProfiles.clear();
       await db.accounts.clear();
       await db.journalEntries.clear();
@@ -158,387 +158,61 @@ export async function initializeDatabase(forceSeed = false) {
       await db.auditLogs.clear();
     }
 
-    // Save profile and base setup
+    // Save profile and clean chart of accounts
     await db.businessProfiles.put(DEFAULT_BUSINESS_PROFILE);
     await db.accounts.bulkPut(DEFAULT_CHART_OF_ACCOUNTS);
     await db.cashAccounts.bulkPut(DEFAULT_CASH_ACCOUNTS);
 
-    // Realistic Demo Products (Zimbabwe SME Essentials)
-    const demoProducts: Product[] = [
-      {
-        id: 'prod_mazoe_2l',
-        sku: 'GRO-001',
-        barcode: '6001234567891',
-        name: 'Mazoe Orange Crush 2 Litres',
-        category: 'Beverages',
-        unit: 'bottles',
-        purchaseCost: 2.80,
-        sellingPrice: 3.50,
-        currency: 'USD',
-        currentStock: 48,
-        minStockLevel: 12,
-        supplierName: 'Schweppes Zimbabwe',
-        updatedAt: new Date().toISOString(),
-        syncStatus: 'synced',
-      },
-      {
-        id: 'prod_roller_meal_10kg',
-        sku: 'GRO-002',
-        barcode: '6001234567892',
-        name: 'Red Seal Roller Meal 10kg',
-        category: 'Food Staples',
-        unit: 'bags',
-        purchaseCost: 5.50,
-        sellingPrice: 6.80,
-        currency: 'USD',
-        currentStock: 35,
-        minStockLevel: 10,
-        supplierName: 'National Foods Zimbabwe',
-        updatedAt: new Date().toISOString(),
-        syncStatus: 'synced',
-      },
-      {
-        id: 'prod_cooking_oil_2l',
-        sku: 'GRO-003',
-        barcode: '6001234567893',
-        name: 'Pure Drop Cooking Oil 2L',
-        category: 'Food Staples',
-        unit: 'bottles',
-        purchaseCost: 3.10,
-        sellingPrice: 4.20,
-        currency: 'USD',
-        currentStock: 22,
-        minStockLevel: 8,
-        supplierName: 'Surface Wilmar',
-        updatedAt: new Date().toISOString(),
-        syncStatus: 'synced',
-      },
-      {
-        id: 'prod_sugar_2kg',
-        sku: 'GRO-004',
-        barcode: '6001234567894',
-        name: 'Gold Star White Sugar 2kg',
-        category: 'Food Staples',
-        unit: 'packets',
-        purchaseCost: 2.20,
-        sellingPrice: 2.80,
-        currency: 'USD',
-        currentStock: 60,
-        minStockLevel: 15,
-        supplierName: 'Star Africa Corp',
-        updatedAt: new Date().toISOString(),
-        syncStatus: 'synced',
-      },
-      {
-        id: 'prod_bread_loaf',
-        sku: 'BAK-001',
-        barcode: '6001234567895',
-        name: 'Lobels Fresh White Bread',
-        category: 'Bakery',
-        unit: 'loaves',
-        purchaseCost: 24.00,
-        sellingPrice: 28.50,
-        currency: 'ZiG',
-        currentStock: 40,
-        minStockLevel: 10,
-        supplierName: 'Lobels Bakery',
-        updatedAt: new Date().toISOString(),
-        syncStatus: 'synced',
-      },
-      {
-        id: 'prod_solar_lantern',
-        sku: 'ELC-101',
-        barcode: '6001234567896',
-        name: 'Rechargeable Solar LED Lantern',
-        category: 'Electronics',
-        unit: 'pcs',
-        purchaseCost: 8.50,
-        sellingPrice: 14.00,
-        currency: 'USD',
-        currentStock: 14,
-        minStockLevel: 5,
-        supplierName: 'Shenzhen Direct Imports',
-        updatedAt: new Date().toISOString(),
-        syncStatus: 'synced',
-      },
-      {
-        id: 'prod_type_c_cable',
-        sku: 'ELC-102',
-        barcode: '6001234567897',
-        name: 'Fast Charging USB-C Cable 2M',
-        category: 'Electronics',
-        unit: 'pcs',
-        purchaseCost: 1.10,
-        sellingPrice: 3.00,
-        currency: 'USD',
-        currentStock: 6,
-        minStockLevel: 8, // Triggers low stock alert
-        supplierName: 'Shenzhen Direct Imports',
-        updatedAt: new Date().toISOString(),
-        syncStatus: 'synced',
-      },
-      {
-        id: 'prod_cement_50kg',
-        sku: 'HDW-201',
-        barcode: '6001234567898',
-        name: 'PPC Surebuild Cement 50kg (PC 32.5)',
-        category: 'Hardware',
-        unit: 'bags',
-        purchaseCost: 10.20,
-        sellingPrice: 12.50,
-        currency: 'USD',
-        currentStock: 4, // Low stock
-        minStockLevel: 10,
-        supplierName: 'PPC Zimbabwe Ltd',
-        updatedAt: new Date().toISOString(),
-        syncStatus: 'synced',
-      },
-    ];
-    await db.products.bulkPut(demoProducts);
-
-    // Realistic Demo Customers
-    const demoCustomers: Customer[] = [
-      {
-        id: 'cust_tendai_m',
-        name: 'Tendai Moyo',
-        phone: '+263773123456',
-        email: 'tendai.moyo@gmail.com',
-        address: 'Stand 402, Highfield, Harare',
-        creditLimit: 250,
-        outstandingBalanceUSD: 85.00,
-        outstandingBalanceZiG: 0,
-        outstandingBalanceZAR: 0,
-        notes: 'Grocery store reseller, pays on Fridays',
-        lastPaymentDate: '2026-11-02',
-        createdAt: '2026-10-15T09:00:00Z',
-      },
-      {
-        id: 'cust_sarah_k',
-        name: 'Sarah Katsande (Catering)',
-        phone: '+263712987654',
-        email: 'sarah.katsande@weddings.co.zw',
-        address: 'Avondale West, Harare',
-        creditLimit: 500,
-        outstandingBalanceUSD: 140.00,
-        outstandingBalanceZiG: 350.00,
-        outstandingBalanceZAR: 0,
-        notes: 'Regular event planner, 30 days overdue for 140 USD invoice',
-        lastPaymentDate: '2026-10-10',
-        createdAt: '2026-09-01T10:00:00Z',
-      },
-      {
-        id: 'cust_blessing_c',
-        name: 'Blessing Chiwenga',
-        phone: '+263778445566',
-        email: 'b.chiwenga@outlook.com',
-        address: 'Chitungwiza Unit C',
-        creditLimit: 150,
-        outstandingBalanceUSD: 0,
-        outstandingBalanceZiG: 0,
-        outstandingBalanceZAR: 0,
-        notes: 'Always pays cash/EcoCash on delivery',
-        createdAt: '2026-10-20T11:00:00Z',
-      },
-    ];
-    await db.customers.bulkPut(demoCustomers);
-
-    // Realistic Demo Suppliers
-    const demoSuppliers: Supplier[] = [
-      {
-        id: 'supp_natfoods',
-        name: 'National Foods Zimbabwe',
-        contactPerson: 'Farai Dube (Wholesale Sales)',
-        phone: '+263242753883',
-        email: 'orders@natfoods.co.zw',
-        address: '10 Stirling Road, Workington, Harare',
-        paymentTerms: 'Net 14 Days',
-        outstandingBalanceUSD: 240.00,
-        outstandingBalanceZiG: 0,
-        outstandingBalanceZAR: 0,
-        createdAt: '2026-09-01T08:00:00Z',
-      },
-      {
-        id: 'supp_schweppes',
-        name: 'Schweppes Zimbabwe Ltd',
-        contactPerson: 'Rutendo Mataruse',
-        phone: '+263242620701',
-        email: 'sales@schweppes.co.zw',
-        address: 'Barrow Road, Southerton, Harare',
-        paymentTerms: 'Cash on Delivery or 7 Days',
-        outstandingBalanceUSD: 95.00,
-        outstandingBalanceZiG: 0,
-        outstandingBalanceZAR: 0,
-        createdAt: '2026-09-01T08:00:00Z',
-      },
-      {
-        id: 'supp_lobels',
-        name: 'Lobels Bread Bakery',
-        contactPerson: 'Patrick Zizhou',
-        phone: '+263242621121',
-        email: 'dispatch@lobels.co.zw',
-        address: 'Highfield Road, Southerton, Harare',
-        paymentTerms: 'Daily Cash or EcoCash',
-        outstandingBalanceUSD: 0,
-        outstandingBalanceZiG: 450.00,
-        outstandingBalanceZAR: 0,
-        createdAt: '2026-10-01T07:00:00Z',
-      },
-    ];
-    await db.suppliers.bulkPut(demoSuppliers);
-
-    // Seed Initial Financial Foundation & Journal Entries
-    // 1. Initial Capital Injection
-    const initialDate = '2026-11-01';
-    const journalEntry1: JournalEntry = {
-      id: 'je_init_capital',
-      organisationId: 'org_default',
-      date: initialDate,
-      reference: 'CAP-2026-001',
-      sourceType: 'transfer',
-      sourceId: 'init',
-      description: "Owner's Opening Working Capital Injection",
-      lines: [
-        { id: 'jel_1', accountId: 'acc_cash_usd', accountName: 'Cash in Hand (USD)', debit: 1200, credit: 0, currency: 'USD' },
-        { id: 'jel_2', accountId: 'acc_cash_zig', accountName: 'Cash in Hand (ZiG)', debit: 8500, credit: 0, currency: 'ZiG' },
-        { id: 'jel_3', accountId: 'acc_equity_capital', accountName: "Owner's Capital", debit: 0, credit: 1200, currency: 'USD' },
-        { id: 'jel_4', accountId: 'acc_equity_capital', accountName: "Owner's Capital", debit: 0, credit: 8500, currency: 'ZiG' },
-      ],
-      createdBy: 'Comfort Ncube (Owner)',
-      createdAt: '2026-11-01T08:00:00Z',
-    };
-    await db.journalEntries.put(journalEntry1);
-
-    // Update account balances
-    await db.accounts.update('acc_cash_usd', { balance: 1200 });
-    await db.accounts.update('acc_cash_zig', { balance: 8500 });
-    await db.accounts.update('acc_equity_capital', { balance: 1200 });
-    await db.cashAccounts.update('cash_usd_drawer', { balance: 1200 });
-    await db.cashAccounts.update('cash_zig_drawer', { balance: 8500 });
-
-    // 2. Demo Operating Expense: Shop Rent Paid
-    const journalEntry2: JournalEntry = {
-      id: 'je_rent_nov',
-      organisationId: 'org_default',
-      date: '2026-11-03',
-      reference: 'EXP-2026-001',
-      sourceType: 'expense',
-      sourceId: 'tx_rent_nov',
-      description: 'November 2026 Shop Rent - Kwame Nkrumah CBD Store',
-      lines: [
-        { id: 'jel_5', accountId: 'acc_exp_rent', accountName: 'Store Rent Expense', debit: 250, credit: 0, currency: 'USD' },
-        { id: 'jel_6', accountId: 'acc_cash_usd', accountName: 'Cash in Hand (USD)', debit: 0, credit: 250, currency: 'USD' },
-      ],
-      createdBy: 'Comfort Ncube (Owner)',
-      createdAt: '2026-11-03T10:00:00Z',
-    };
-    await db.journalEntries.put(journalEntry2);
-
-    const rentTx: FinancialTransaction = {
-      id: 'tx_rent_nov',
-      organisationId: 'org_default',
-      date: '2026-11-03',
-      type: 'expense',
-      category: 'Rent',
-      description: 'November 2026 Shop Rent - Kwame Nkrumah CBD Store',
-      amount: 250,
-      currency: 'USD',
-      paymentMethod: 'cash',
-      accountId: 'acc_cash_usd',
-      journalEntryId: 'je_rent_nov',
-      createdBy: 'Comfort Ncube (Owner)',
-      createdAt: '2026-11-03T10:00:00Z',
-      syncStatus: 'synced',
-    };
-    await db.transactions.put(rentTx);
-
-    // 3. Demo Cash Sale
-    const saleDate = '2026-11-09';
-    const demoSale: Sale = {
-      id: 'sale_1001',
-      receiptNumber: 'REC-2026-1001',
-      date: saleDate,
-      customerId: undefined,
-      customerName: 'Walk-in Customer',
-      items: [
-        { productId: 'prod_mazoe_2l', productName: 'Mazoe Orange Crush 2 Litres', sku: 'GRO-001', quantity: 2, unitPrice: 3.50, costPrice: 2.80, total: 7.00, currency: 'USD' },
-        { productId: 'prod_roller_meal_10kg', productName: 'Red Seal Roller Meal 10kg', sku: 'GRO-002', quantity: 1, unitPrice: 6.80, costPrice: 5.50, total: 6.80, currency: 'USD' },
-        { productId: 'prod_cooking_oil_2l', productName: 'Pure Drop Cooking Oil 2L', sku: 'GRO-003', quantity: 1, unitPrice: 4.20, costPrice: 3.10, total: 4.20, currency: 'USD' },
-      ],
-      subtotal: 18.00,
-      discount: 0,
-      tax: 0,
-      total: 18.00,
-      currency: 'USD',
-      payments: [{ method: 'cash', amount: 18.00, currency: 'USD' }],
-      isCredit: false,
-      creditBalanceRemaining: 0,
-      cashierId: 'usr_cashier_1',
-      cashierName: 'Grace Tsuro (Cashier)',
-      syncStatus: 'synced',
-      journalEntryId: 'je_sale_1001',
-      createdAt: '2026-11-09T14:30:00Z',
-    };
-    await db.sales.put(demoSale);
-
-    const jeSale: JournalEntry = {
-      id: 'je_sale_1001',
-      organisationId: 'org_default',
-      date: saleDate,
-      reference: 'REC-2026-1001',
-      sourceType: 'sale',
-      sourceId: 'sale_1001',
-      description: 'Cash Sale Walk-in Customer (Mazoe x2, Roller Meal x1, Cooking Oil x1)',
-      lines: [
-        { id: 'jel_s1', accountId: 'acc_cash_usd', accountName: 'Cash in Hand (USD)', debit: 18.00, credit: 0, currency: 'USD' },
-        { id: 'jel_s2', accountId: 'acc_sales_rev_usd', accountName: 'Sales Revenue (USD)', debit: 0, credit: 18.00, currency: 'USD' },
-        // COGS & Inventory Reduction
-        { id: 'jel_s3', accountId: 'acc_cogs_usd', accountName: 'Cost of Goods Sold (USD)', debit: 14.20, credit: 0, currency: 'USD' },
-        { id: 'jel_s4', accountId: 'acc_inventory_usd', accountName: 'Merchandise Inventory (USD)', debit: 0, credit: 14.20, currency: 'USD' },
-      ],
-      createdBy: 'Grace Tsuro (Cashier)',
-      createdAt: '2026-11-09T14:30:00Z',
-    };
-    await db.journalEntries.put(jeSale);
-
-    const saleTx: FinancialTransaction = {
-      id: 'tx_sale_1001',
-      organisationId: 'org_default',
-      date: saleDate,
-      type: 'sale',
-      category: 'Sales Revenue',
-      description: 'POS Cash Sale - Receipt #REC-2026-1001',
-      amount: 18.00,
-      currency: 'USD',
-      paymentMethod: 'cash',
-      accountId: 'acc_cash_usd',
-      journalEntryId: 'je_sale_1001',
-      createdBy: 'Grace Tsuro (Cashier)',
-      createdAt: '2026-11-09T14:30:00Z',
-      syncStatus: 'synced',
-    };
-    await db.transactions.put(saleTx);
-
-    // Update balances
-    const cashUsd = await db.accounts.get('acc_cash_usd');
-    if (cashUsd) {
-      await db.accounts.update('acc_cash_usd', { balance: (cashUsd.balance || 0) - 250 + 18.00 });
-      await db.cashAccounts.update('cash_usd_drawer', { balance: (cashUsd.balance || 0) - 250 + 18.00 });
-    }
-    await db.accounts.update('acc_exp_rent', { balance: 250 });
-    await db.accounts.update('acc_sales_rev_usd', { balance: 18.00 });
-    await db.accounts.update('acc_cogs_usd', { balance: 14.20 });
-
-    // Initial Audit Log
+    // Initial Clean Audit Log
     await db.auditLogs.put({
-      id: 'log_seed',
+      id: 'log_init',
       action: 'SYSTEM_INITIALIZATION',
       entity: 'DATABASE',
       entityId: 'cobos_db',
-      performedBy: 'System Engine',
-      details: 'Comfort Business Operational System local database initialized with Zimbabwe SME standard setup.',
+      performedBy: 'Admin (Comfort Ncube)',
+      details: 'Comfort Business Operational System database initialized ready for production transactions.',
       timestamp: new Date().toISOString(),
     });
   }
+}
+
+/**
+ * Clean all user data tables while keeping the structural chart of accounts and business profile
+ */
+export async function clearAllUserData(): Promise<void> {
+  await db.journalEntries.clear();
+  await db.transactions.clear();
+  await db.sales.clear();
+  await db.products.clear();
+  await db.stockMovements.clear();
+  await db.customers.clear();
+  await db.customerPayments.clear();
+  await db.suppliers.clear();
+  await db.supplierPurchases.clear();
+  await db.supplierPayments.clear();
+  await db.syncQueue.clear();
+  await db.cashReconciliations.clear();
+
+  // Reset account balances to 0
+  const accounts = await db.accounts.toArray();
+  for (const acc of accounts) {
+    await db.accounts.update(acc.id, { balance: 0 });
+  }
+
+  const cashAccounts = await db.cashAccounts.toArray();
+  for (const cAcc of cashAccounts) {
+    await db.cashAccounts.update(cAcc.id, { balance: 0 });
+  }
+
+  await db.auditLogs.put({
+    id: 'log_clear_' + Date.now(),
+    action: 'DATA_CLEARED',
+    entity: 'ALL_MODULES',
+    entityId: 'system',
+    performedBy: 'Admin (Comfort Ncube)',
+    details: 'All operational records cleared. System reset to fresh clean operational state.',
+    timestamp: new Date().toISOString(),
+  });
 }
 
 /**

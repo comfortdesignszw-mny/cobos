@@ -18,12 +18,13 @@ const ClerkUserSynchronizer: React.FC = () => {
       const primaryPhone = user.primaryPhoneNumber?.phoneNumber || '';
       const fullName = user.fullName || user.firstName || 'Clerk User';
 
+      const isComfortAdmin = primaryEmail.toLowerCase() === 'comfort.designszw@gmail.com';
       const cobosUser: User = {
         id: 'clerk_' + user.id,
-        name: fullName,
+        name: isComfortAdmin ? 'Comfort Ncube' : fullName,
         email: primaryEmail || (primaryPhone ? `${primaryPhone.replace(/\D/g, '')}@cobos.zw` : 'user@cobos.zw'),
         phone: primaryPhone || undefined,
-        role: (user.publicMetadata?.role as any) || 'owner',
+        role: isComfortAdmin ? 'owner' : ((user.publicMetadata?.role as any) || 'cashier'),
         organisationId: 'org_default',
         authProvider: user.externalAccounts?.some((a) => a.provider === 'google')
           ? 'clerk_google'

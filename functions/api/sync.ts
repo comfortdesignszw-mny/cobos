@@ -1,6 +1,6 @@
 /**
  * Cloudflare Pages Function: /api/sync
- * Receives queued operations from COBOS PWA client and applies them to Cloudflare D1 (SQLite)
+ * Receives queued operations from COBOS client and persists them directly into Cloudflare D1 (SQLite)
  */
 
 interface Env {
@@ -19,15 +19,13 @@ export const onRequestPost = async (context: { request: Request; env: Env }) => 
       });
     }
 
-    // If D1 is bound in Cloudflare runtime
     if (env && env.DB) {
       const statements: any[] = [];
 
       for (const op of operations) {
         const payload = typeof op.payload === 'string' ? JSON.parse(op.payload) : op.payload;
 
-        // Process based on entity type
-        if (op.entityType === 'sale' && op.operation === 'INSERT') {
+        if (op.entityType === 'sale' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
           statements.push(
             env.DB.prepare(
               `INSERT OR REPLACE INTO sales (id, receipt_number, date, customer_id, customer_name, items_json, subtotal, discount, tax, total, currency, payments_json, is_credit, credit_balance_remaining, cashier_id, cashier_name, journal_entry_id)
@@ -52,7 +50,7 @@ export const onRequestPost = async (context: { request: Request; env: Env }) => 
               payload.journalEntryId
             )
           );
-        } else if (op.entityType === 'transaction' && op.operation === 'INSERT') {
+        } else if (op.entityType === 'transaction' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
           statements.push(
             env.DB.prepare(
               `INSERT OR REPLACE INTO financial_transactions (id, date, type, category, description, amount, currency, payment_method, account_id, related_entity_id, related_entity_name, journal_entry_id, created_by)
@@ -93,9 +91,59 @@ export const onRequestPost = async (context: { request: Request; env: Env }) => 
               payload.supplierName || null
             )
           );
+        } else if (op.entityType === 'customer' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
+          statements.push(
+            env.DB.prepare(
+              `INSERT OR REPLACE INTO customers (id, name, phone, email, address, notes, credit_limit, outstanding_balance_usd, outstanding_balance_zig, outstanding_balance_zar, last_payment_date)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              payload.id,
+              payload.name,
+              payload.phone,
+              payload.email || null,
+              payload.address || null,
+              payload.notes || null,
+              payload.creditLimit || 0,
+              payload.outstandingBalanceUSD || 0,
+              payload.outstandingBalanceZiG || 0,
+              payload.outstandingBalanceZAR || 0,
+              payload.lastPaymentDate || null
+            )
+          );
+        } else if (op.entityType === 'supplier' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
+          statements.push(
+            env.DB.prepare(
+              `INSERT OR REPLACE INTO suppliers (id, name, contact_person, phone, email, address, payment_terms, outstanding_balance_usd, outstanding_balance_zig, outstanding_balance_zar)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              payload.id,
+              payload.name,
+              payload.contactPerson || null,
+              payload.phone,
+              payload.email || null,
+              payload.address || null,
+              payload.paymentTerms || null,
+              payload.outstandingBalanceUSD || 0,
+              payload.outstandingBalanceZiG || 0,
+              payload.outstandingBalanceZAR || 0
+            )
+          );
+        } else if (op.entityType === 'user' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
+          statements.push(
+            env.DB.prepare(
+              `INSERT OR REPLACE INTO users (id, organisation_id, name, email, role)
+               VALUES (?, ?, ?, ?, ?)`
+            ).bind(
+              payload.id,
+              payload.organisationId || 'org_default',
+              payload.name,
+              payload.email,
+              payload.role || 'cashier'
+            )
+          );
         }
 
-        // Record in sync audit log
+        // Record into cloud audit log
         statements.push(
           env.DB.prepare(
             `INSERT INTO sync_audit_log (id, entity_type, entity_id, operation) VALUES (?, ?, ?, ?)`
