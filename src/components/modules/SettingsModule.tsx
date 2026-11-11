@@ -29,7 +29,7 @@ export const SettingsModule: React.FC = () => {
   const [taxNumber, setTaxNumber] = useState(profile.taxNumber || '');
   const [receiptFooter, setReceiptFooter] = useState(profile.receiptFooter);
   const [logoUrl, setLogoUrl] = useState(profile.logoUrl || '');
-  const [userAvatarUrl, setUserAvatarUrl] = useState(currentUser.avatarUrl || '');
+  const [userAvatarUrl, setUserAvatarUrl] = useState(currentUser?.avatarUrl || '');
 
   const [rateZiG, setRateZiG] = useState(profile.exchangeRates.ZiG);
   const [rateZAR, setRateZAR] = useState(profile.exchangeRates.ZAR);
@@ -87,7 +87,7 @@ export const SettingsModule: React.FC = () => {
       },
     });
 
-    if (userAvatarUrl !== currentUser.avatarUrl) {
+    if (currentUser && userAvatarUrl !== currentUser.avatarUrl) {
       currentUser.avatarUrl = userAvatarUrl;
       await queueSyncItem('user', currentUser.id, 'UPDATE', currentUser);
     }
@@ -207,7 +207,7 @@ export const SettingsModule: React.FC = () => {
             {/* User Profile Avatar Upload */}
             <div className="space-y-2">
               <label className="text-[10px] font-semibold uppercase text-slate-400 block">
-                Your Profile Avatar ({currentUser.name})
+                Your Profile Avatar ({currentUser?.name || 'Staff Member'})
               </label>
               <div className="flex items-center gap-3">
                 <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0">

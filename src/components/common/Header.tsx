@@ -128,78 +128,88 @@ export const Header: React.FC = () => {
         {/* PWA Install */}
         <PWAInstallButton />
 
-        {/* User Account Dropdown */}
-        <div className="relative">
+        {/* User Account / Login Area */}
+        {!currentUser ? (
           <button
-            onClick={() => setUserMenuOpen(!userMenuOpen)}
-            className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-white hover:bg-slate-750 transition"
+            onClick={() => setIsAuthModalOpen(true)}
+            className="flex items-center gap-2 rounded-xl border border-cyan-500/50 bg-gradient-to-r from-cyan-950 via-slate-900 to-cyan-950 px-3.5 py-1.5 text-xs font-bold text-cyan-300 shadow-sm hover:shadow-cyan-500/20 hover:border-cyan-400 hover:text-white transition active:scale-95 cursor-pointer"
           >
-            {currentUser.avatarUrl ? (
-              <img
-                src={currentUser.avatarUrl}
-                alt={currentUser.name}
-                className="w-5 h-5 rounded-full object-cover border border-cyan-400"
-              />
-            ) : (
-              <div className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-[10px]">
-                {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+            <LogIn className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Login to COBOS</span>
+          </button>
+        ) : (
+          <div className="relative">
+            <button
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-white hover:bg-slate-750 transition"
+            >
+              {currentUser.avatarUrl ? (
+                <img
+                  src={currentUser.avatarUrl}
+                  alt={currentUser.name}
+                  className="w-5 h-5 rounded-full object-cover border border-cyan-400"
+                />
+              ) : (
+                <div className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-[10px]">
+                  {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
+                </div>
+              )}
+              <div className="hidden sm:flex flex-col text-left leading-tight">
+                <span className="font-semibold text-slate-200 truncate max-w-[120px]">
+                  {currentUser.name.split(' ')[0]}
+                </span>
+                <span className="text-[9px] text-cyan-400 uppercase font-mono font-bold">
+                  {isSuperAdmin ? 'SUPER ADMIN' : activeRole}
+                </span>
+              </div>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            </button>
+
+            {userMenuOpen && (
+              <div className="absolute right-0 mt-1.5 w-64 rounded-2xl border border-slate-700 bg-slate-900 p-3 shadow-2xl z-50 text-xs space-y-2.5">
+                <div className="pb-2.5 border-b border-slate-800 space-y-1">
+                  <div className="font-bold text-white flex items-center justify-between">
+                    <span className="truncate">{currentUser.name}</span>
+                    {isSuperAdmin && (
+                      <span className="px-1.5 py-0.5 rounded text-[9px] bg-cyan-950 text-cyan-300 font-bold border border-cyan-700">
+                        SUPER ADMIN
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-mono truncate">{currentUser.email}</div>
+                  {currentUser.phone && (
+                    <div className="text-[10px] text-slate-400 font-mono">Phone: {currentUser.phone}</div>
+                  )}
+                  <div className="text-[10px] text-slate-400 font-mono">
+                    Plan: <span className="text-emerald-400 uppercase font-semibold">{currentUser.subscriptionPlan || 'Enterprise'}</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    setIsAuthModalOpen(true);
+                  }}
+                  className="w-full flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-slate-300 hover:bg-slate-800 hover:text-white transition cursor-pointer"
+                >
+                  <LogIn className="w-4 h-4 text-cyan-400" />
+                  <span>Switch / Sign In Staff Account</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    signOut();
+                  }}
+                  className="w-full flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-rose-400 hover:bg-rose-950/40 transition cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sign Out</span>
+                </button>
               </div>
             )}
-            <div className="hidden sm:flex flex-col text-left leading-tight">
-              <span className="font-semibold text-slate-200 truncate max-w-[120px]">
-                {currentUser.name.split(' ')[0]}
-              </span>
-              <span className="text-[9px] text-cyan-400 uppercase font-mono font-bold">
-                {isSuperAdmin ? 'SUPER ADMIN' : activeRole}
-              </span>
-            </div>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-          </button>
-
-          {userMenuOpen && (
-            <div className="absolute right-0 mt-1.5 w-64 rounded-2xl border border-slate-700 bg-slate-900 p-3 shadow-2xl z-50 text-xs space-y-2.5">
-              <div className="pb-2.5 border-b border-slate-800 space-y-1">
-                <div className="font-bold text-white flex items-center justify-between">
-                  <span className="truncate">{currentUser.name}</span>
-                  {isSuperAdmin && (
-                    <span className="px-1.5 py-0.5 rounded text-[9px] bg-cyan-950 text-cyan-300 font-bold border border-cyan-700">
-                      SUPER ADMIN
-                    </span>
-                  )}
-                </div>
-                <div className="text-[11px] text-slate-400 font-mono truncate">{currentUser.email}</div>
-                {currentUser.phone && (
-                  <div className="text-[10px] text-slate-400 font-mono">Phone: {currentUser.phone}</div>
-                )}
-                <div className="text-[10px] text-slate-400 font-mono">
-                  Plan: <span className="text-emerald-400 uppercase font-semibold">{currentUser.subscriptionPlan || 'Enterprise'}</span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => {
-                  setUserMenuOpen(false);
-                  setIsAuthModalOpen(true);
-                }}
-                className="w-full flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-slate-300 hover:bg-slate-800 hover:text-white transition"
-              >
-                <LogIn className="w-4 h-4 text-cyan-400" />
-                <span>Switch / Sign In Staff Account</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setUserMenuOpen(false);
-                  signOut();
-                }}
-                className="w-full flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-rose-400 hover:bg-rose-950/40 transition"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>Sign Out</span>
-              </button>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </header>
   );

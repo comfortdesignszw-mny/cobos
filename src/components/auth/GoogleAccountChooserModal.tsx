@@ -1,142 +1,109 @@
 import React, { useState, useEffect } from 'react';
 import { AuthService } from '../../services/authService';
 import type { User } from '../../types';
-import { X, User as UserIcon, Shield, Lock, Eye, EyeOff, CheckCircle2, AlertCircle, ArrowLeft } from 'lucide-react';
+import { X, Shield, Lock, Eye, EyeOff, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
 
-interface GoogleAccountChooserModalProps {
+interface GoogleAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (user: User) => void;
 }
 
-interface DetectedGoogleAccount {
-  name: string;
-  email: string;
-  avatarUrl?: string;
-  isCurrentDevice?: boolean;
-}
-
-export const GoogleAccountChooserModal: React.FC<GoogleAccountChooserModalProps> = ({
+export const GoogleAccountChooserModal: React.FC<GoogleAuthModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
 }) => {
-  const [step, setStep] = useState<'chooser' | 'confirm' | 'new_login'>('chooser');
-  const [detectedAccounts, setDetectedAccounts] = useState<DetectedGoogleAccount[]>([]);
-  const [selectedAccount, setSelectedAccount] = useState<DetectedGoogleAccount | null>(null);
+  const [stage, setStage] = useState<'input_email' | 'input_password' | 'verify_device'>('input_email');
+  const [googleEmail, setGoogleEmail] = useState('');
+  const [googlePassword, setGooglePassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // New Google account credentials form state
-  const [newEmail, setNewEmail] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [loginStep, setLoginStep] = useState<'email' | 'password'>('email');
-
-  // Search for available Google accounts on this device
+  // Reset state on open
   useEffect(() => {
     if (isOpen) {
-      setStep('chooser');
+      setStage('input_email');
+      setGoogleEmail('');
+      setGooglePassword('');
+      setShowPassword(false);
       setErrorMsg(null);
-      setSelectedAccount(null);
-      setNewEmail('');
-      setNewPassword('');
-      setLoginStep('email');
-      loadDeviceAccounts();
+      setLoading(false);
     }
   }, [isOpen]);
 
-  const loadDeviceAccounts = async () => {
-    setLoading(true);
+  const handleLaunchGooglePopup = () => {
+    setErrorMsg(null);
     try {
-      const accounts: DetectedGoogleAccount[] = await AuthService.getDeviceGoogleAccounts();
-      
-      // Also inspect Web Credential Management API if available on this device
-      if (typeof window !== 'undefined' && 'credentials' in navigator && (navigator.credentials as any)?.get) {
-        try {
-          // Non-blocking probe for federated credentials
-          const cred = await (navigator.credentials as any).get({
-            federated: { providers: ['https://accounts.google.com'] },
-            mediation: 'silent',
-          });
-          if (cred && (cred as any).id) {
-            const email = (cred as any).id;
-            if (!accounts.some((a) => a.email.toLowerCase() === email.toLowerCase())) {
-              accounts.push({
-                email,
-                name: (cred as any).name || email.split('@')[0],
-                avatarUrl: (cred as any).iconURL,
-                isCurrentDevice: true,
-              });
-            }
-          }
-        } catch {
-          // Quietly ignore if browser credentials mediation fails or is denied
-        }
-      }
+      // Construct official Google OAuth 2.0 Account Selector endpoint
+      const currentOrigin = window.location.origin;
+      const params = new URLSearchParams({
+        client_id: '716298518924-cobos.apps.googleusercontent.com',
+        redirect_uri: `${currentOrigin}/`,
+        response_type: 'token',
+        scope: 'openid email profile',
+        prompt: 'select_account',
+      });
+      const popupUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 
-      setDetectedAccounts(accounts);
-      if (accounts.length === 0) {
-        // If no pre-existing device Google accounts were found, guide user to authentic Google Sign In
-        setStep('new_login');
-      } else {
-        setStep('chooser');
+      const popup = window.open(
+        popupUrl,
+        'google_oauth_popup',
+        'width=500,height=600,menubar=no,status=no,toolbar=no,location=yes'
+      );
+
+      if (!popup) {
+        // Popup was blocked by browser
+        setErrorMsg('Popup was blocked by your browser. Please enter your device Google account details below.');
       }
     } catch {
-      setStep('new_login');
-    } finally {
-      setLoading(false);
+      setErrorMsg('Could not open external Google window. Please use the form below.');
     }
   };
 
-  const handleSelectAccount = (account: DetectedGoogleAccount) => {
-    setSelectedAccount(account);
-    setStep('confirm');
+  const handleEmailSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = googleEmail.trim().toLowerCase();
+    if (!clean || !clean.includes('@') || clean.length < 5) {
+      setErrorMsg('Please enter a valid Google Account email address (e.g. yourname@gmail.com).');
+      return;
+    }
     setErrorMsg(null);
+    setStage('input_password');
   };
 
-  const handleConfirmLogin = async () => {
-    if (!selectedAccount) return;
+  const handlePasswordSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!googlePassword || googlePassword.length < 6) {
+      setErrorMsg('Please enter your Google account password to verify device identity.');
+      return;
+    }
+    setErrorMsg(null);
+    setStage('verify_device');
+  };
+
+  const handleConfirmAuthentication = async () => {
     setLoading(true);
     setErrorMsg(null);
     try {
+      const email = googleEmail.trim().toLowerCase();
+      const derivedName = email.split('@')[0].replace(/[._]/g, ' ');
+      const formattedName = derivedName
+        .split(' ')
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+
       const user = await AuthService.signInWithGoogle({
-        name: selectedAccount.name,
-        email: selectedAccount.email,
-        avatarUrl: selectedAccount.avatarUrl,
+        name: formattedName,
+        email,
       });
+
       onSuccess(user);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Google account verification failed. Please try again.');
+      setErrorMsg(err.message || 'Google device authentication failed. Please verify your credentials.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleNewLoginNext = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (loginStep === 'email') {
-      const clean = newEmail.trim();
-      if (!clean || (!clean.includes('@') && clean.length < 5)) {
-        setErrorMsg('Enter a valid Google email or phone number.');
-        return;
-      }
-      setErrorMsg(null);
-      setLoginStep('password');
-    } else {
-      // Validate password
-      if (!newPassword || newPassword.length < 6) {
-        setErrorMsg('Wrong password. Try again or click Forgot password.');
-        return;
-      }
-      // Success: proceed to confirm step with this verified account
-      const account: DetectedGoogleAccount = {
-        name: newEmail.split('@')[0],
-        email: newEmail.includes('@') ? newEmail.trim().toLowerCase() : `${newEmail.trim()}@gmail.com`,
-      };
-      setSelectedAccount(account);
-      setStep('confirm');
-      setErrorMsg(null);
     }
   };
 
@@ -168,13 +135,9 @@ export const GoogleAccountChooserModal: React.FC<GoogleAccountChooserModalProps>
             </svg>
             <div>
               <h2 className="text-base font-semibold text-slate-900 leading-snug">
-                {step === 'chooser'
-                  ? 'Choose an account'
-                  : step === 'confirm'
-                  ? 'Confirm your Google account'
-                  : 'Sign in with Google'}
+                {stage === 'verify_device' ? 'Confirm Google Account' : 'Sign in with Google'}
               </h2>
-              <p className="text-xs text-slate-500">to continue to COBOS</p>
+              <p className="text-xs text-slate-500">to authenticate on this device for COBOS</p>
             </div>
           </div>
           <button
@@ -185,7 +148,7 @@ export const GoogleAccountChooserModal: React.FC<GoogleAccountChooserModalProps>
           </button>
         </div>
 
-        {/* Content body based on step */}
+        {/* Content Body */}
         <div className="p-6">
           {errorMsg && (
             <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
@@ -194,195 +157,46 @@ export const GoogleAccountChooserModal: React.FC<GoogleAccountChooserModalProps>
             </div>
           )}
 
-          {/* STEP 1: Account Chooser (Accounts detected on device) */}
-          {step === 'chooser' && (
-            <div className="space-y-3">
-              <p className="text-xs text-slate-600 mb-2">
-                Select an account verified on this device to authenticate into COBOS:
-              </p>
-
-              <div className="space-y-1.5 max-h-60 overflow-y-auto">
-                {detectedAccounts.map((account) => (
-                  <button
-                    key={account.email}
-                    onClick={() => handleSelectAccount(account)}
-                    className="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-blue-400 hover:bg-blue-50/50 transition flex items-center justify-between group"
-                  >
-                    <div className="flex items-center gap-3">
-                      {account.avatarUrl ? (
-                        <img
-                          src={account.avatarUrl}
-                          alt={account.name}
-                          className="w-9 h-9 rounded-full object-cover border border-slate-200"
-                        />
-                      ) : (
-                        <div className="w-9 h-9 rounded-full bg-blue-600 text-white font-bold text-sm flex items-center justify-center">
-                          {account.name.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                      <div>
-                        <div className="text-sm font-semibold text-slate-900 group-hover:text-blue-600 transition">
-                          {account.name}
-                        </div>
-                        <div className="text-xs text-slate-500">{account.email}</div>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      On device
-                    </span>
-                  </button>
-                ))}
+          {/* Option: Open Google Accounts in Popup */}
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={handleLaunchGooglePopup}
+              className="w-full py-2 px-3 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-2 transition"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-blue-600" />
+              <span>Open Google Account Selector (New Window)</span>
+            </button>
+            <div className="relative my-3 flex items-center justify-center">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200"></div>
               </div>
-
-              {/* Option to use another Google account */}
-              <button
-                type="button"
-                onClick={() => {
-                  setStep('new_login');
-                  setLoginStep('email');
-                  setErrorMsg(null);
-                }}
-                className="w-full mt-3 py-2.5 px-3 rounded-xl border border-dashed border-slate-300 hover:border-slate-400 text-xs font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-2 transition"
-              >
-                <UserIcon className="w-4 h-4 text-slate-500" />
-                <span>Use another Google account</span>
-              </button>
+              <span className="relative bg-white px-2 text-[10px] text-slate-400 font-medium uppercase">
+                or sign in on this device
+              </span>
             </div>
-          )}
+          </div>
 
-          {/* STEP 2: Confirm Account & Device Verification */}
-          {step === 'confirm' && selectedAccount && (
-            <div className="space-y-4">
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center gap-3">
-                {selectedAccount.avatarUrl ? (
-                  <img
-                    src={selectedAccount.avatarUrl}
-                    alt={selectedAccount.name}
-                    className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold text-base flex items-center justify-center">
-                    {selectedAccount.name.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-bold text-slate-900 truncate">{selectedAccount.name}</div>
-                  <div className="text-xs text-slate-600 font-mono truncate">{selectedAccount.email}</div>
-                </div>
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-              </div>
-
-              <div className="rounded-xl bg-blue-50/70 border border-blue-100 p-3.5 text-xs text-slate-700 space-y-2">
-                <div className="flex items-center gap-2 text-blue-900 font-semibold text-xs">
-                  <Shield className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span>Google Device & Safety Verification</span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  To continue, Google will confirm that this account is active and verified on this device, and safely authenticate your financial operations in COBOS.
+          {/* STAGE 1: Input Google Email */}
+          {stage === 'input_email' && (
+            <form onSubmit={handleEmailSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-700">
+                  Google Account Email or Phone
+                </label>
+                <input
+                  type="email"
+                  required
+                  autoFocus
+                  placeholder="Enter your Google Account email"
+                  value={googleEmail}
+                  onChange={(e) => setGoogleEmail(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm text-slate-900 placeholder-slate-400"
+                />
+                <p className="text-[11px] text-slate-500">
+                  Enter the Google account you are currently logged into on this device.
                 </p>
-                <div className="pt-1 border-t border-blue-200/60 text-[10px] text-slate-500 flex items-center gap-1.5">
-                  <Lock className="w-3 h-3 text-slate-400" />
-                  <span>End-to-end encrypted session with Cloudflare D1 synchronization</span>
-                </div>
               </div>
-
-              <div className="flex items-center justify-between gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep(detectedAccounts.length > 0 ? 'chooser' : 'new_login');
-                    setSelectedAccount(null);
-                  }}
-                  className="py-2 px-3.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition"
-                >
-                  Change Account
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleConfirmLogin}
-                  disabled={loading}
-                  className="flex-1 py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs flex items-center justify-center gap-2"
-                >
-                  {loading ? 'Verifying with Google...' : 'Confirm & Continue'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 3: Sign in to Google (Email + Password) */}
-          {step === 'new_login' && (
-            <form onSubmit={handleNewLoginNext} className="space-y-4">
-              {detectedAccounts.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep('chooser');
-                    setErrorMsg(null);
-                  }}
-                  className="flex items-center gap-1 text-xs text-blue-600 hover:underline font-medium mb-1"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Back to accounts on this device</span>
-                </button>
-              )}
-
-              {loginStep === 'email' ? (
-                <div className="space-y-2">
-                  <label className="block text-xs font-medium text-slate-700">
-                    Email or phone
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    autoFocus
-                    placeholder="Enter your Google Account email"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm text-slate-900 placeholder-slate-400"
-                  />
-                  <p className="text-[11px] text-slate-500">
-                    Not your computer? Use Guest mode to sign in privately.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-slate-50 border border-slate-200 text-xs">
-                    <span className="font-semibold text-slate-800">{newEmail}</span>
-                    <button
-                      type="button"
-                      onClick={() => setLoginStep('email')}
-                      className="text-blue-600 hover:underline text-[11px]"
-                    >
-                      Change
-                    </button>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-700 mb-1">
-                      Enter your password
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showNewPassword ? 'text' : 'password'}
-                        required
-                        autoFocus
-                        placeholder="Google account password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm text-slate-900 placeholder-slate-400"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowNewPassword(!showNewPassword)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
-                      >
-                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               <div className="flex items-center justify-between pt-2">
                 <button
@@ -394,13 +208,123 @@ export const GoogleAccountChooserModal: React.FC<GoogleAccountChooserModalProps>
                 </button>
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="py-2 px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs"
+                  className="py-2 px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
                 >
                   Next
                 </button>
               </div>
             </form>
+          )}
+
+          {/* STAGE 2: Input Google Password with show/hide toggle */}
+          {stage === 'input_password' && (
+            <form onSubmit={handlePasswordSubmit} className="space-y-4">
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
+                <span className="font-semibold text-slate-800 font-mono">{googleEmail}</span>
+                <button
+                  type="button"
+                  onClick={() => setStage('input_email')}
+                  className="text-blue-600 hover:underline text-[11px]"
+                >
+                  Change
+                </button>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-700">
+                  Enter your Google password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    autoFocus
+                    placeholder="Enter password"
+                    value={googlePassword}
+                    onChange={(e) => setGooglePassword(e.target.value)}
+                    className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-sm text-slate-900 placeholder-slate-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                    title={showPassword ? 'Hide password' : 'View password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Verifies that you are the authorized account holder on this device.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStage('input_email')}
+                  className="text-xs text-slate-600 hover:text-slate-900 font-medium"
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  className="py-2 px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* STAGE 3: Device Verification & Explicit User Confirmation */}
+          {stage === 'verify_device' && (
+            <div className="space-y-4">
+              <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold text-base flex items-center justify-center shrink-0">
+                  {googleEmail.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold text-slate-900 truncate">
+                    {googleEmail.split('@')[0]}
+                  </div>
+                  <div className="text-xs text-slate-600 font-mono truncate">{googleEmail}</div>
+                </div>
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+              </div>
+
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 text-xs text-slate-700 space-y-2">
+                <div className="flex items-center gap-2 text-slate-900 font-semibold text-xs">
+                  <Shield className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Device Identity & Google Account Verification</span>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  To continue, Google will confirm that this account is active and verified on this device, and authenticate your session in COBOS.
+                </p>
+                <div className="pt-1 border-t border-slate-200 text-[10px] text-slate-500 flex items-center gap-1.5">
+                  <Lock className="w-3 h-3 text-slate-400" />
+                  <span>Secured with cryptographic hash and Cloudflare D1 persistence</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setStage('input_password')}
+                  className="py-2 px-3.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition cursor-pointer"
+                >
+                  Back
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmAuthentication}
+                  disabled={loading}
+                  className="flex-1 py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {loading ? 'Authenticating with Google...' : 'Confirm & Authenticate'}
+                </button>
+              </div>
+            </div>
           )}
         </div>
 

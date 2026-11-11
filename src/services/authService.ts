@@ -146,9 +146,10 @@ export class AuthService {
   }
 
   /**
-   * Get currently active session user from localStorage or fallback to Super Admin
+   * Get currently active session user from localStorage or return null if unauthenticated.
+   * By default, no user or account is logged in automatically without explicit verification.
    */
-  static getActiveSessionUser(): User {
+  static getActiveSessionUser(): User | null {
     if (typeof window !== 'undefined') {
       try {
         const stored = localStorage.getItem(AUTH_STORAGE_KEY);
@@ -166,7 +167,7 @@ export class AuthService {
         // Fallback
       }
     }
-    return INITIAL_SUPER_ADMIN_USER;
+    return null;
   }
 
   /**
@@ -191,30 +192,6 @@ export class AuthService {
     }
   }
 
-  /**
-   * Returns list of Google accounts previously authorized or remembered on this device
-   */
-  static async getDeviceGoogleAccounts(): Promise<Array<{ name: string; email: string; avatarUrl?: string }>> {
-    await this.init();
-    const allUsers = await db.users.toArray();
-    const googleUsers = allUsers.filter(
-      (u) => u.authProvider === 'clerk_google' || u.email.endsWith('@gmail.com')
-    );
-
-    // Dedup by email
-    const map = new Map<string, { name: string; email: string; avatarUrl?: string }>();
-    for (const u of googleUsers) {
-      if (u.email && !map.has(u.email.toLowerCase())) {
-        map.set(u.email.toLowerCase(), {
-          name: u.name,
-          email: u.email,
-          avatarUrl: u.avatarUrl,
-        });
-      }
-    }
-
-    return Array.from(map.values());
-  }
 
   /**
    * Sign In via Phone OR Email with Password verification

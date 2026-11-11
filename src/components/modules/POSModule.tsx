@@ -26,8 +26,10 @@ import {
 export const POSModule: React.FC = () => {
   const {
     activeCurrency,
+    currentUser,
     activeUser,
     setReceiptModalData,
+    setIsAuthModalOpen,
     triggerRefresh,
     refreshKey,
     profile,
@@ -169,6 +171,12 @@ export const POSModule: React.FC = () => {
 
   // Process checkout
   const handleCheckout = async () => {
+    if (!currentUser) {
+      setIsAuthModalOpen(true);
+      setErrorMsg('Authentication Required: Please Login to COBOS to complete sales.');
+      return;
+    }
+
     if (cart.length === 0) {
       setErrorMsg('Cart is empty. Add products or services first.');
       return;
@@ -253,7 +261,19 @@ export const POSModule: React.FC = () => {
             <span>Point of Sale Terminal</span>
           </h2>
           <p className="text-xs text-slate-400">
-            Cashier: <strong className="text-cyan-300">{activeUser.name}</strong> • Currency:{' '}
+            {currentUser ? (
+              <>
+                Cashier: <strong className="text-cyan-300">{currentUser.name}</strong> • Currency:{' '}
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsAuthModalOpen(true)}
+                className="text-cyan-400 font-semibold hover:underline inline-flex items-center gap-1 cursor-pointer mr-2"
+              >
+                <span>Login required to sale</span> •
+              </button>
+            )}
             <strong className="text-white font-mono">{activeCurrency}</strong>
           </p>
         </div>

@@ -4,14 +4,23 @@ import { syncEngine } from '../services/syncEngine';
 import { AuthService, SUPER_ADMIN_EMAIL } from '../services/authService';
 import type { BusinessProfile, CurrencyCode, UserRole, User, Sale } from '../types';
 
+export const ANONYMOUS_GUEST_USER: User = {
+  id: 'usr_unauthenticated',
+  name: 'Unauthenticated User',
+  email: 'unauthenticated@cobos.zw',
+  role: 'cashier',
+  organisationId: 'org_default',
+};
+
 export interface AppContextType {
   profile: BusinessProfile;
   updateProfile: (updated: Partial<BusinessProfile>) => Promise<void>;
-  currentUser: User;
-  setCurrentUser: (user: User) => void;
+  currentUser: User | null;
+  setCurrentUser: (user: User | null) => void;
   activeRole: UserRole;
   setActiveRole: (role: UserRole) => void;
   activeUser: User;
+  isAuthenticated: boolean;
   signOut: () => void;
   isAuthModalOpen: boolean;
   setIsAuthModalOpen: (open: boolean) => void;
@@ -41,7 +50,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [profile, setProfile] = useState<BusinessProfile>(DEFAULT_BUSINESS_PROFILE);
-  const [currentUser, setCurrentUser] = useState<User>(AuthService.getActiveSessionUser());
+  const [currentUser, setCurrentUser] = useState<User | null>(AuthService.getActiveSessionUser());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [activeCurrency, setActiveCurrency] = useState<CurrencyCode>('USD');
   const [activeTab, setActiveTab] = useState<string>('dashboard');
@@ -57,11 +66,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncError: null as string | null,
   });
 
-  const activeRole = currentUser.role;
-  const isSuperAdmin = currentUser.role === 'super_admin' || currentUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+  const isAuthenticated = currentUser !== null;
+  const activeRole: UserRole = currentUser ? currentUser.role : 'cashier';
+  const isSuperAdmin = currentUser !== null && (currentUser.role === 'super_admin' || currentUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase());
+  const activeUser: User = currentUser || ANONYMOUS_GUEST_USER;
 
   const setActiveRole = (role: UserRole) => {
-    // Only super_admin can change role arbitrary for testing
+    if (!currentUser) return;
+    // Only super_admin can change role arbitrarily for testing
     if (!isSuperAdmin && role === 'super_admin') return;
     const updatedUser: User = { ...currentUser, role };
     setCurrentUser(updatedUser);
@@ -71,15 +83,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const signOut = () => {
     AuthService.clearSession();
-    const guestUser: User = {
-      id: 'usr_guest',
-      name: 'Guest Cashier',
-      email: 'guest@cobos.zw',
-      role: 'cashier',
-      organisationId: 'org_default',
-    };
-    setCurrentUser(guestUser);
-    setIsAuthModalOpen(true);
+    setCurrentUser(null);
+    setIsAuthModalOpen(false);
     triggerRefresh();
   };
 
@@ -125,6 +130,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Fine-Grained Role-Based Access Control (RBAC) & Row-Level Security checks
   const hasPermission = (permission: 'view_profit' | 'reverse_tx' | 'manage_settings' | 'manage_inventory' | 'pos_sale' | 'view_reports' | 'upgrade_subscriptions' | 'manage_all_companies') => {
+    if (!currentUser) {
+      return false; // Authentication required for operational activities
+    }
     if (isSuperAdmin) return true; // Super admin has overall omni-permissions
 
     switch (permission) {
@@ -158,7 +166,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentUser,
         activeRole,
         setActiveRole,
-        activeUser: currentUser,
+        activeUser,
+        isAuthenticated,
         signOut,
         isAuthModalOpen,
         setIsAuthModalOpen,

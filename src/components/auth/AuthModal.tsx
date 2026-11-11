@@ -491,10 +491,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       {/* Google Account Chooser & Auth Popup Modal */}
       <GoogleAccountChooserModal
         isOpen={isGoogleModalOpen}
-        onClose={() => {
-          setIsGoogleModalOpen(false);
-          setErrorMsg('Google Sign-In cancelled. Please select or log into a valid Google account to continue.');
-        }}
+        onClose={() => setIsGoogleModalOpen(false)}
         onSuccess={handleGoogleSuccess}
       />
 

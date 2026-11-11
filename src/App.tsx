@@ -24,15 +24,37 @@ import { SupplierPayablesModule } from './components/modules/SupplierPayablesMod
 import { CashFlowModule } from './components/modules/CashFlowModule';
 import { ReportsModule } from './components/modules/ReportsModule';
 import { SettingsModule } from './components/modules/SettingsModule';
+import { Lock } from 'lucide-react';
 
 const MainContent: React.FC<{
   onOpenTerms: () => void;
   onOpenPrivacy: () => void;
 }> = ({ onOpenTerms, onOpenPrivacy }) => {
-  const { activeTab } = useApp();
+  const { activeTab, currentUser, setIsAuthModalOpen } = useApp();
 
   return (
     <main className="flex-1 flex flex-col justify-between overflow-y-auto h-[calc(100vh-57px)]">
+      {!currentUser && (
+        <div className="mx-3 mt-3 sm:mx-6 sm:mt-4 p-3 rounded-2xl bg-gradient-to-r from-slate-900 via-cyan-950/40 to-slate-900 border border-cyan-800/60 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-300 shadow-lg">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-xl bg-cyan-950 text-cyan-400 border border-cyan-700/60 shrink-0">
+              <Lock className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="font-bold text-white">Unauthenticated Session</span>
+              <p className="text-[11px] text-slate-400">
+                Please verify credentials to authorize sales, bookkeeping, and cloud database persistence.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setIsAuthModalOpen(true)}
+            className="py-1.5 px-3.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition shadow-md active:scale-95 cursor-pointer"
+          >
+            Login to COBOS
+          </button>
+        </div>
+      )}
       <div className="p-3 sm:p-6 flex-1 pb-4">
         {activeTab === 'dashboard' && <DashboardModule />}
         {activeTab === 'pos' && <POSModule />}
