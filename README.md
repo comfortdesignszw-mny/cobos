@@ -86,7 +86,7 @@ Wrangler will output your database ID. Update `wrangler.jsonc` with this ID:
   {
     "binding": "DB",
     "database_name": "cobos-db",
-    "database_id": "<your-database-id-here>"
+    "database_id": "3728407e-49be-4763-bc63-0ca451a94c96"
   }
 ]
 ```

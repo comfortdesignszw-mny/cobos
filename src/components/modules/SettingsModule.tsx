@@ -380,6 +380,10 @@ export const SettingsModule: React.FC = () => {
               <span className="text-cyan-300 font-bold">DB (cobos-db)</span>
             </div>
             <div className="flex items-center justify-between text-slate-400">
+              <span>D1 Database ID:</span>
+              <span className="text-white font-bold select-all">3728407e-49be-4763-bc63-0ca451a94c96</span>
+            </div>
+            <div className="flex items-center justify-between text-slate-400">
               <span>Sync Endpoint:</span>
               <span className="text-slate-200">/api/sync (Pages Function)</span>
             </div>
