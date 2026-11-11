@@ -32,8 +32,8 @@ const MainContent: React.FC<{
   const { activeTab } = useApp();
 
   return (
-    <main className="flex-1 flex flex-col justify-between overflow-y-auto min-h-screen">
-      <div className="p-3 sm:p-6 flex-1">
+    <main className="flex-1 flex flex-col justify-between overflow-y-auto h-[calc(100vh-57px)]">
+      <div className="p-3 sm:p-6 flex-1 pb-4">
         {activeTab === 'dashboard' && <DashboardModule />}
         {activeTab === 'pos' && <POSModule />}
         {activeTab === 'transactions' && <BookkeepingModule />}
@@ -44,6 +44,7 @@ const MainContent: React.FC<{
         {activeTab === 'reports' && <ReportsModule />}
         {activeTab === 'settings' && <SettingsModule />}
       </div>
+      {/* Footer rendered inside main scroll container with generous bottom padding so it scrolls past mobile bottom bar */}
       <Footer onOpenTerms={onOpenTerms} onOpenPrivacy={onOpenPrivacy} />
     </main>
   );
@@ -60,7 +61,7 @@ export default function App() {
   return (
     <AppProvider>
       <ClerkAuthProvider>
-        <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
+        <div className="h-screen w-screen overflow-hidden bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
           <Header />
           <div className="flex-1 flex overflow-hidden">
             <Navigation />

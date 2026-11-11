@@ -41,15 +41,15 @@ export class CobosDatabase extends Dexie {
   constructor() {
     super('cobos_offline_db');
 
-    this.version(2).stores({
-      users: 'id, email, phone, role',
+    this.version(3).stores({
+      users: 'id, email, phone, role, organisationId',
       businessProfiles: 'id',
       accounts: 'id, code, type, currency',
-      journalEntries: 'id, date, reference, sourceType, isReversed',
-      transactions: 'id, date, type, currency, category, paymentMethod, accountId, syncStatus, isReversed',
-      products: 'id, sku, barcode, category, currency, currentStock, syncStatus',
+      journalEntries: 'id, date, reference, sourceType, isReversed, createdById',
+      transactions: 'id, date, type, currency, category, paymentMethod, accountId, syncStatus, isReversed, createdById, organisationId',
+      products: 'id, sku, barcode, category, currency, currentStock, itemType, syncStatus',
       stockMovements: 'id, productId, type, date, reference',
-      sales: 'id, receiptNumber, date, customerId, currency, isCredit, syncStatus',
+      sales: 'id, receiptNumber, date, customerId, currency, isCredit, cashierId, syncStatus',
       customers: 'id, name, phone',
       customerPayments: 'id, customerId, date, currency, syncStatus',
       suppliers: 'id, name, phone',
@@ -134,7 +134,7 @@ export const DEFAULT_BUSINESS_PROFILE: BusinessProfile = {
 };
 
 /**
- * Initializes the clean database structure without fake demo transactions
+ * Initializes clean database structure without fake demo transactions
  */
 export async function initializeDatabase(forceReset = false) {
   const profileCount = await db.businessProfiles.count();
@@ -169,15 +169,15 @@ export async function initializeDatabase(forceReset = false) {
       action: 'SYSTEM_INITIALIZATION',
       entity: 'DATABASE',
       entityId: 'cobos_db',
-      performedBy: 'Admin (Comfort Ncube)',
-      details: 'Comfort Business Operational System database initialized ready for production transactions.',
+      performedBy: 'Super Admin (Munyaradzi Muchineripi)',
+      details: 'Comfort Business Operational System database initialized ready for production operations.',
       timestamp: new Date().toISOString(),
     });
   }
 }
 
 /**
- * Clean all user data tables while keeping the structural chart of accounts and business profile
+ * Clear all user records while preserving structural schema
  */
 export async function clearAllUserData(): Promise<void> {
   await db.journalEntries.clear();
@@ -209,7 +209,7 @@ export async function clearAllUserData(): Promise<void> {
     action: 'DATA_CLEARED',
     entity: 'ALL_MODULES',
     entityId: 'system',
-    performedBy: 'Admin (Comfort Ncube)',
+    performedBy: 'Super Admin (Munyaradzi Muchineripi)',
     details: 'All operational records cleared. System reset to fresh clean operational state.',
     timestamp: new Date().toISOString(),
   });

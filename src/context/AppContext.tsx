@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { db, initializeDatabase, DEFAULT_BUSINESS_PROFILE } from '../db/cobosDb';
 import { syncEngine } from '../services/syncEngine';
-import { AuthService, ADMIN_EMAIL } from '../services/authService';
+import { AuthService, SUPER_ADMIN_EMAIL } from '../services/authService';
 import type { BusinessProfile, CurrencyCode, UserRole, User, Sale } from '../types';
 
 export interface AppContextType {
@@ -33,7 +33,8 @@ export interface AppContextType {
   setReceiptModalData: (sale: Sale | null) => void;
   journalViewId: string | null;
   setJournalViewId: (id: string | null) => void;
-  hasPermission: (permission: 'view_profit' | 'reverse_tx' | 'manage_settings' | 'manage_inventory' | 'pos_sale' | 'view_reports') => boolean;
+  isSuperAdmin: boolean;
+  hasPermission: (permission: 'view_profit' | 'reverse_tx' | 'manage_settings' | 'manage_inventory' | 'pos_sale' | 'view_reports' | 'upgrade_subscriptions' | 'manage_all_companies') => boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -57,8 +58,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const activeRole = currentUser.role;
+  const isSuperAdmin = currentUser.role === 'super_admin' || currentUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
 
   const setActiveRole = (role: UserRole) => {
+    // Only super_admin can change role arbitrary for testing
+    if (!isSuperAdmin && role === 'super_admin') return;
     const updatedUser: User = { ...currentUser, role };
     setCurrentUser(updatedUser);
     AuthService.setActiveSessionUser(updatedUser);
@@ -67,7 +71,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const signOut = () => {
     AuthService.clearSession();
-    // Default to a guest cashier or re-open login modal
     const guestUser: User = {
       id: 'usr_guest',
       name: 'Guest Cashier',
@@ -120,21 +123,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     triggerRefresh();
   };
 
-  // Role Level Security checks
-  const hasPermission = (permission: 'view_profit' | 'reverse_tx' | 'manage_settings' | 'manage_inventory' | 'pos_sale' | 'view_reports') => {
+  // Fine-Grained Role-Based Access Control (RBAC) & Row-Level Security checks
+  const hasPermission = (permission: 'view_profit' | 'reverse_tx' | 'manage_settings' | 'manage_inventory' | 'pos_sale' | 'view_reports' | 'upgrade_subscriptions' | 'manage_all_companies') => {
+    if (isSuperAdmin) return true; // Super admin has overall omni-permissions
+
     switch (permission) {
+      case 'upgrade_subscriptions':
+      case 'manage_all_companies':
+        return isSuperAdmin;
       case 'view_profit':
-        return ['owner', 'manager', 'accountant'].includes(activeRole);
+        return ['super_admin', 'owner', 'manager', 'accountant'].includes(activeRole);
       case 'reverse_tx':
-        return ['owner', 'accountant'].includes(activeRole);
+        // Cashiers CANNOT reverse or cancel any sale without manager/admin approval
+        return ['super_admin', 'owner', 'manager'].includes(activeRole);
       case 'manage_settings':
-        return ['owner', 'manager'].includes(activeRole);
+        return ['super_admin', 'owner', 'manager'].includes(activeRole);
       case 'manage_inventory':
-        return ['owner', 'manager', 'inventory_manager'].includes(activeRole);
+        return ['super_admin', 'owner', 'manager', 'inventory_manager', 'cashier'].includes(activeRole);
       case 'pos_sale':
-        return ['owner', 'manager', 'cashier'].includes(activeRole);
+        return ['super_admin', 'owner', 'manager', 'cashier'].includes(activeRole);
       case 'view_reports':
-        return ['owner', 'manager', 'accountant'].includes(activeRole);
+        return ['super_admin', 'owner', 'manager', 'accountant'].includes(activeRole);
       default:
         return true;
     }
@@ -165,6 +174,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setReceiptModalData,
         journalViewId,
         setJournalViewId,
+        isSuperAdmin,
         hasPermission,
       }}
     >

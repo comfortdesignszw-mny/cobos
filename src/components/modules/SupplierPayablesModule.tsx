@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { db } from '../../db/cobosDb';
 import { AccountingEngine, generateUUID, queueSyncItem } from '../../services/accountingEngine';
+import { compressImageFile } from '../../utils/imageCompressor';
 import type { Supplier, SupplierPurchase, SupplierPayment, CurrencyCode } from '../../types';
 import {
   Truck,
@@ -13,7 +14,10 @@ import {
   X,
   Phone,
   Building,
-  FileSpreadsheet,
+  LayoutGrid,
+  List,
+  CreditCard,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 export const SupplierPayablesModule: React.FC = () => {
@@ -24,6 +28,7 @@ export const SupplierPayablesModule: React.FC = () => {
   const [payments, setPayments] = useState<SupplierPayment[]>([]);
   const [activeTab, setActiveTab] = useState<'payables' | 'directory' | 'purchases_history'>('payables');
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'cards' | 'grid' | 'list'>('cards');
 
   // New Supplier Modal
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
@@ -33,26 +38,8 @@ export const SupplierPayablesModule: React.FC = () => {
   const [suppEmail, setSuppEmail] = useState('');
   const [suppAddress, setSuppAddress] = useState('');
   const [suppTerms, setSuppTerms] = useState('Net 14 Days');
-
-  // Record Stock Purchase Modal
-  const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
-  const [selectedSupplierId, setSelectedSupplierId] = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [purchaseTotal, setPurchaseTotal] = useState<number>(0);
-  const [purchaseCurrency, setPurchaseCurrency] = useState<CurrencyCode>(activeCurrency);
-  const [isPurchaseCredit, setIsPurchaseCredit] = useState(true);
-  const [purchasePaidAmount, setPurchasePaidAmount] = useState<number>(0);
-  const [purchaseItemsSummary, setPurchaseItemsSummary] = useState('');
-  const [purchaseDate, setPurchaseDate] = useState(new Date().toISOString().split('T')[0]);
-
-  // Record Supplier Payment Modal
-  const [payingSupplier, setPayingSupplier] = useState<Supplier | null>(null);
-  const [payAmount, setPayAmount] = useState<number>(0);
-  const [payCurrency, setPayCurrency] = useState<CurrencyCode>(activeCurrency);
-  const [payMethod, setPayMethod] = useState<'cash' | 'ecocash' | 'bank' | 'card'>('cash');
-  const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
-  const [payNotes, setPayNotes] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [suppLogoUrl, setSuppLogoUrl] = useState('');
+  const [isCompressingLogo, setIsCompressingLogo] = useState(false);
 
   useEffect(() => {
     async function loadSuppliers() {
@@ -66,34 +53,32 @@ export const SupplierPayablesModule: React.FC = () => {
     loadSuppliers();
   }, [refreshKey]);
 
-  // Totals
-  const totalPayableUSD = suppliers.reduce((sum, s) => sum + (s.outstandingBalanceUSD || 0), 0);
-  const totalPayableZiG = suppliers.reduce((sum, s) => sum + (s.outstandingBalanceZiG || 0), 0);
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const filteredSuppliers = suppliers.filter((s) => {
-    const q = searchQuery.toLowerCase();
-    const matchesSearch =
-      s.name.toLowerCase().includes(q) ||
-      s.contactPerson.toLowerCase().includes(q) ||
-      s.phone.toLowerCase().includes(q);
-
-    if (activeTab === 'payables') {
-      const bal = activeCurrency === 'ZiG' ? s.outstandingBalanceZiG : s.outstandingBalanceUSD;
-      return matchesSearch && (bal || 0) > 0;
+    setIsCompressingLogo(true);
+    try {
+      const compressed = await compressImageFile(file, { maxWidth: 300, maxHeight: 300, quality: 0.8 });
+      setSuppLogoUrl(compressed);
+    } catch (err) {
+      alert('Failed to process supplier logo.');
+    } finally {
+      setIsCompressingLogo(false);
     }
-    return matchesSearch;
-  });
+  };
 
   const handleSaveSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     const newSupp: Supplier = {
       id: 'supp_' + generateUUID(),
-      name: suppName,
-      contactPerson: suppContact,
-      phone: suppPhone,
-      email: suppEmail || undefined,
-      address: suppAddress || undefined,
-      paymentTerms: suppTerms,
+      name: suppName.trim(),
+      contactPerson: suppContact.trim(),
+      phone: suppPhone.trim(),
+      email: suppEmail.trim() || undefined,
+      address: suppAddress.trim() || undefined,
+      paymentTerms: suppTerms.trim(),
+      logoUrl: suppLogoUrl || undefined,
       outstandingBalanceUSD: 0,
       outstandingBalanceZiG: 0,
       outstandingBalanceZAR: 0,
@@ -104,558 +89,252 @@ export const SupplierPayablesModule: React.FC = () => {
     await queueSyncItem('supplier', newSupp.id, 'INSERT', newSupp);
 
     setIsSupplierModalOpen(false);
-    setSuppName('');
-    setSuppContact('');
-    setSuppPhone('+263');
-    setSuppEmail('');
-    setSuppAddress('');
     triggerRefresh();
   };
 
-  const handleSavePurchase = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedSupplierId || purchaseTotal <= 0) return;
-
-    setIsSubmitting(true);
-    try {
-      await AccountingEngine.recordSupplierPurchase({
-        supplierId: selectedSupplierId,
-        invoiceNumber: invoiceNumber || 'INV-' + Math.floor(1000 + Math.random() * 9000),
-        totalAmount: purchaseTotal,
-        currency: purchaseCurrency,
-        isCredit: isPurchaseCredit,
-        paidAmount: isPurchaseCredit ? purchasePaidAmount : purchaseTotal,
-        paymentMethod: isPurchaseCredit && purchasePaidAmount === 0 ? undefined : 'cash',
-        itemsSummary: purchaseItemsSummary || 'General Stock Inward',
-        date: purchaseDate,
-        performedBy: activeUser.name,
-      });
-
-      setIsPurchaseModalOpen(false);
-      setPurchaseTotal(0);
-      setPurchasePaidAmount(0);
-      setPurchaseItemsSummary('');
-      triggerRefresh();
-    } catch (err: any) {
-      alert('Error recording stock purchase: ' + err.message);
-    } finally {
-      setIsSubmitting(false);
+  const filteredSuppliers = suppliers.filter((s) => {
+    const q = searchQuery.toLowerCase();
+    const matches = s.name.toLowerCase().includes(q) || s.phone.includes(q);
+    if (activeTab === 'payables') {
+      return matches && (s.outstandingBalanceUSD > 0 || s.outstandingBalanceZiG > 0 || s.outstandingBalanceZAR > 0);
     }
-  };
-
-  const handleRecordSupplierPayment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!payingSupplier || payAmount <= 0) return;
-
-    setIsSubmitting(true);
-    try {
-      await AccountingEngine.recordSupplierPayment({
-        supplierId: payingSupplier.id,
-        amount: payAmount,
-        currency: payCurrency,
-        paymentMethod: payMethod,
-        date: payDate,
-        notes: payNotes,
-        performedBy: activeUser.name,
-      });
-
-      setPayingSupplier(null);
-      setPayAmount(0);
-      setPayNotes('');
-      triggerRefresh();
-    } catch (err: any) {
-      alert('Error recording payment: ' + err.message);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    return matches;
+  });
 
   return (
     <div className="space-y-5 pb-20">
-      {/* Header & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800">
+      {/* Top Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
-            <Truck className="w-5 h-5 text-purple-400" />
-            Supplier & Accounts Payable Management
+            <Truck className="w-5 h-5 text-cyan-400" />
+            <span>Supplier Payables & Trade Purchases</span>
           </h2>
           <p className="text-xs text-slate-400">
-            Monitor supplier invoices, credit terms, and outgoing trade debt payments.
+            Wholesale suppliers, credit purchase invoices, and disbursements.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800">
-            <button
-              onClick={() => setActiveTab('payables')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                activeTab === 'payables'
-                  ? 'bg-purple-600 text-white font-bold'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Due Payables
-            </button>
-            <button
-              onClick={() => setActiveTab('directory')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                activeTab === 'directory'
-                  ? 'bg-cyan-500 text-slate-950 font-bold'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Directory ({suppliers.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('purchases_history')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
-                activeTab === 'purchases_history'
-                  ? 'bg-cyan-500 text-slate-950 font-bold'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Purchases Log
-            </button>
-          </div>
-
-          <button
-            onClick={() => setIsPurchaseModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-md transition"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Stock Purchase</span>
-          </button>
-
-          <button
-            onClick={() => setIsSupplierModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition"
-          >
-            <span>+ Supplier</span>
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            setSuppName('');
+            setSuppContact('');
+            setSuppPhone('+263');
+            setSuppEmail('');
+            setSuppAddress('');
+            setSuppTerms('Net 14 Days');
+            setSuppLogoUrl('');
+            setIsSupplierModalOpen(true);
+          }}
+          className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-md transition"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Add Supplier</span>
+        </button>
       </div>
 
-      {/* Payables KPI Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] uppercase font-semibold text-slate-400">Total Supplier Debt (USD)</span>
-          <div className="text-lg font-black font-mono text-purple-400">
-            ${totalPayableUSD.toFixed(2)}
-          </div>
-          <span className="text-[10px] text-slate-400">Accounts Payable (USD)</span>
-        </div>
-
-        <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] uppercase font-semibold text-slate-400">Total Supplier Debt (ZiG)</span>
-          <div className="text-lg font-black font-mono text-cyan-300">
-            ZiG {totalPayableZiG.toFixed(2)}
-          </div>
-          <span className="text-[10px] text-slate-400">Accounts Payable (ZiG)</span>
-        </div>
-
-        <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
-          <span className="text-[10px] uppercase font-semibold text-slate-400">Credit Inward Purchases</span>
-          <div className="text-xs text-slate-300 pt-1">
-            Recorded stock purchases automatically feed inventory valuation and general ledger.
-          </div>
-        </div>
-      </div>
-
-      {/* SUPPLIERS TABLE */}
-      {activeTab !== 'purchases_history' ? (
-        <div className="space-y-4">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+      {/* Controls: Search, View Mode (List/Cards/Grid), and Tabs */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-2xl bg-slate-900 border border-slate-800 text-xs">
+        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[240px]">
+          <div className="relative flex-1 min-w-[180px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
             <input
               type="text"
-              placeholder="Search by supplier name, contact person or phone..."
+              placeholder="Search supplier name or contact..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs placeholder-slate-400 focus:outline-hidden focus:border-purple-500"
+              className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-700 text-white placeholder-slate-500 focus:outline-hidden"
             />
           </div>
 
-          <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-lg">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-950/80 text-[10px] uppercase text-slate-400 border-b border-slate-800">
-                  <tr>
-                    <th className="py-3 px-4">Supplier Name</th>
-                    <th className="py-3 px-4">Contact Person</th>
-                    <th className="py-3 px-4">Phone</th>
-                    <th className="py-3 px-4">Payment Terms</th>
-                    <th className="py-3 px-4 text-right">Owing (USD)</th>
-                    <th className="py-3 px-4 text-right">Owing (ZiG)</th>
-                    <th className="py-3 px-4 text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60">
-                  {filteredSuppliers.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="text-center py-10 text-slate-500">
-                        No suppliers found matching criteria.
-                      </td>
-                    </tr>
+          <div className="flex rounded-xl bg-slate-950 p-0.5 border border-slate-800 text-xs">
+            <button
+              onClick={() => setActiveTab('payables')}
+              className={`px-3 py-1 rounded-lg ${activeTab === 'payables' ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-slate-400'}`}
+            >
+              Pending Payables
+            </button>
+            <button
+              onClick={() => setActiveTab('directory')}
+              className={`px-3 py-1 rounded-lg ${activeTab === 'directory' ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-slate-400'}`}
+            >
+              All Suppliers
+            </button>
+          </div>
+        </div>
+
+        {/* View Mode Switcher */}
+        <div className="flex items-center gap-1 rounded-xl bg-slate-950 p-1 border border-slate-800">
+          <button
+            onClick={() => setViewMode('cards')}
+            title="Card View"
+            className={`p-1.5 rounded-lg ${viewMode === 'cards' ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-400 hover:text-white'}`}
+          >
+            <CreditCard className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setViewMode('grid')}
+            title="Grid View"
+            className={`p-1.5 rounded-lg ${viewMode === 'grid' ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-400 hover:text-white'}`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setViewMode('list')}
+            title="List View"
+            className={`p-1.5 rounded-lg ${viewMode === 'list' ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-400 hover:text-white'}`}
+          >
+            <List className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* CARDS VIEW */}
+      {viewMode === 'cards' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredSuppliers.map((s) => (
+            <div key={s.id} className="p-4 rounded-2xl bg-slate-900 border border-slate-800 shadow-md text-xs space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden shrink-0 flex items-center justify-center">
+                  {s.logoUrl ? (
+                    <img src={s.logoUrl} alt="" className="w-full h-full object-cover" />
                   ) : (
-                    filteredSuppliers.map((s) => (
-                      <tr key={s.id} className="hover:bg-slate-850/50 transition">
-                        <td className="py-3 px-4">
-                          <div className="font-semibold text-white">{s.name}</div>
-                          {s.address && <div className="text-[10px] text-slate-400">{s.address}</div>}
-                        </td>
-                        <td className="py-3 px-4 text-slate-300">{s.contactPerson || '—'}</td>
-                        <td className="py-3 px-4 font-mono text-slate-300">{s.phone}</td>
-                        <td className="py-3 px-4 text-slate-400">{s.paymentTerms || 'Standard'}</td>
-                        <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap">
-                          <span className={s.outstandingBalanceUSD > 0 ? 'text-purple-400' : 'text-slate-400'}>
-                            ${s.outstandingBalanceUSD.toFixed(2)}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold whitespace-nowrap">
-                          <span className={s.outstandingBalanceZiG > 0 ? 'text-cyan-300' : 'text-slate-400'}>
-                            {s.outstandingBalanceZiG.toFixed(2)}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <button
-                            onClick={() => {
-                              setPayingSupplier(s);
-                              setPayAmount(s.outstandingBalanceUSD > 0 ? s.outstandingBalanceUSD : s.outstandingBalanceZiG);
-                              setPayCurrency(s.outstandingBalanceUSD > 0 ? 'USD' : 'ZiG');
-                            }}
-                            className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-semibold transition"
-                          >
-                            Pay Debt
-                          </button>
-                        </td>
-                      </tr>
-                    ))
+                    <Building className="w-6 h-6 text-slate-600" />
                   )}
-                </tbody>
-              </table>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-bold text-white text-sm truncate">{s.name}</h4>
+                  <p className="text-slate-400 text-[11px] truncate">Contact: {s.contactPerson}</p>
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center justify-between font-mono">
+                <span className="text-[10px] text-slate-400">Payable Balance:</span>
+                <span className={`font-bold ${s.outstandingBalanceUSD > 0 ? 'text-rose-400 text-sm' : 'text-slate-300'}`}>
+                  ${s.outstandingBalanceUSD.toFixed(2)} USD
+                </span>
+              </div>
             </div>
-          </div>
+          ))}
         </div>
-      ) : (
-        /* PURCHASES LOG */
+      )}
+
+      {/* GRID VIEW */}
+      {viewMode === 'grid' && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          {filteredSuppliers.map((s) => (
+            <div key={s.id} className="p-3.5 rounded-2xl bg-slate-900 border border-slate-800 shadow-sm text-xs space-y-2 text-center">
+              <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-800 overflow-hidden mx-auto flex items-center justify-center">
+                {s.logoUrl ? (
+                  <img src={s.logoUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <Building className="w-5 h-5 text-slate-600" />
+                )}
+              </div>
+              <div>
+                <h4 className="font-bold text-white text-xs truncate">{s.name}</h4>
+                <p className="text-[10px] text-slate-400 font-mono truncate">{s.phone}</p>
+              </div>
+              <div className="pt-1 font-mono font-bold text-rose-400">
+                ${s.outstandingBalanceUSD.toFixed(2)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* LIST VIEW */}
+      {viewMode === 'list' && (
         <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden shadow-lg">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-950/80 text-[10px] uppercase text-slate-400 border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">Date</th>
-                  <th className="py-3 px-4">Invoice #</th>
-                  <th className="py-3 px-4">Supplier</th>
-                  <th className="py-3 px-4">Items / Description</th>
-                  <th className="py-3 px-4 text-right">Total Amount</th>
-                  <th className="py-3 px-4 text-center">Credit Status</th>
-                  <th className="py-3 px-4">Received By</th>
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-950/70 border-b border-slate-800 text-[10px] uppercase font-bold text-slate-400">
+              <tr>
+                <th className="p-3">Supplier Name</th>
+                <th className="p-3">Contact</th>
+                <th className="p-3">Phone</th>
+                <th className="p-3">Payment Terms</th>
+                <th className="p-3 text-right">Outstanding Payable</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 font-mono">
+              {filteredSuppliers.map((s) => (
+                <tr key={s.id} className="hover:bg-slate-800/50 transition">
+                  <td className="p-3 font-sans font-bold text-white flex items-center gap-2">
+                    {s.logoUrl && <img src={s.logoUrl} alt="" className="w-5 h-5 rounded object-cover" />}
+                    <span>{s.name}</span>
+                  </td>
+                  <td className="p-3 font-sans text-slate-300">{s.contactPerson}</td>
+                  <td className="p-3 text-slate-400">{s.phone}</td>
+                  <td className="p-3 font-sans text-slate-400">{s.paymentTerms}</td>
+                  <td className={`p-3 text-right font-bold ${s.outstandingBalanceUSD > 0 ? 'text-rose-400' : 'text-slate-300'}`}>
+                    ${s.outstandingBalanceUSD.toFixed(2)}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60 font-mono">
-                {purchases.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-850/50">
-                    <td className="py-2.5 px-4 text-slate-400 whitespace-nowrap">{p.date}</td>
-                    <td className="py-2.5 px-4 text-cyan-300 font-bold">{p.invoiceNumber}</td>
-                    <td className="py-2.5 px-4 font-sans font-semibold text-white">{p.supplierName}</td>
-                    <td className="py-2.5 px-4 font-sans text-slate-300">{p.itemsSummary}</td>
-                    <td className="py-2.5 px-4 text-right font-bold text-white whitespace-nowrap">
-                      {p.currency} {p.totalAmount.toFixed(2)}
-                    </td>
-                    <td className="py-2.5 px-4 text-center font-sans">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          p.isCredit ? 'bg-purple-950 text-purple-300 border border-purple-800' : 'bg-emerald-950 text-emerald-300'
-                        }`}
-                      >
-                        {p.isCredit ? 'ON CREDIT' : 'PAID CASH'}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-4 font-sans text-slate-400">{p.receivedBy}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {/* RECORD PURCHASE MODAL */}
-      {isPurchaseModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-700 p-5 shadow-2xl space-y-4 text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h3 className="text-sm font-bold text-white">Record Stock Inward Purchase</h3>
-              <button onClick={() => setIsPurchaseModalOpen(false)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSavePurchase} className="space-y-3">
-              <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
-                  Select Supplier
-                </label>
-                <select
-                  required
-                  value={selectedSupplierId}
-                  onChange={(e) => setSelectedSupplierId(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                >
-                  <option value="">-- Choose Supplier --</option>
-                  {suppliers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.paymentTerms})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
-                    Supplier Invoice #
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. INV-98124"
-                    value={invoiceNumber}
-                    onChange={(e) => setInvoiceNumber(e.target.value)}
-                    className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
-                    Invoice Date
-                  </label>
-                  <input
-                    type="date"
-                    value={purchaseDate}
-                    onChange={(e) => setPurchaseDate(e.target.value)}
-                    className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
-                    Invoice Total
-                  </label>
-                  <div className="flex gap-1.5">
-                    <select
-                      value={purchaseCurrency}
-                      onChange={(e) => setPurchaseCurrency(e.target.value as CurrencyCode)}
-                      className="w-20 p-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-bold"
-                    >
-                      <option value="USD">USD</option>
-                      <option value="ZiG">ZiG</option>
-                      <option value="ZAR">ZAR</option>
-                    </select>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      required
-                      value={purchaseTotal || ''}
-                      onChange={(e) => setPurchaseTotal(parseFloat(e.target.value) || 0)}
-                      className="flex-1 p-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono font-bold"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
-                    Terms & Payment
-                  </label>
-                  <select
-                    value={isPurchaseCredit ? 'credit' : 'cash'}
-                    onChange={(e) => setIsPurchaseCredit(e.target.value === 'credit')}
-                    className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-medium"
-                  >
-                    <option value="credit">On Credit (Accounts Payable)</option>
-                    <option value="cash">Paid Immediately (Cash)</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
-                  Items Summary / Manifest
-                </label>
-                <textarea
-                  rows={2}
-                  required
-                  placeholder="e.g. 10 cases Mazoe Orange Crush, 20 bags Roller meal 10kg..."
-                  value={purchaseItemsSummary}
-                  onChange={(e) => setPurchaseItemsSummary(e.target.value)}
-                  className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setIsPurchaseModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold"
-                >
-                  {isSubmitting ? 'Posting...' : 'Record Inward Stock'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* RECORD SUPPLIER PAYMENT MODAL */}
-      {payingSupplier && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 p-5 shadow-2xl space-y-4 text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h3 className="text-sm font-bold text-white">Disburse Supplier Debt Payment</h3>
-              <button onClick={() => setPayingSupplier(null)} className="text-slate-400 hover:text-white">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 space-y-1">
-              <div>Supplier: <span className="font-bold text-white">{payingSupplier.name}</span></div>
-              <div className="font-mono text-[11px] text-purple-400">
-                Outstanding: ${payingSupplier.outstandingBalanceUSD.toFixed(2)} USD | {payingSupplier.outstandingBalanceZiG.toFixed(2)} ZiG
-              </div>
-            </div>
-
-            <form onSubmit={handleRecordSupplierPayment} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Currency</label>
-                  <select
-                    value={payCurrency}
-                    onChange={(e) => setPayCurrency(e.target.value as CurrencyCode)}
-                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-bold"
-                  >
-                    <option value="USD">USD</option>
-                    <option value="ZiG">ZiG</option>
-                    <option value="ZAR">ZAR</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Disbursed Amount</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    required
-                    value={payAmount || ''}
-                    onChange={(e) => setPayAmount(parseFloat(e.target.value) || 0)}
-                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono font-bold text-purple-300"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Payment Method</label>
-                  <select
-                    value={payMethod}
-                    onChange={(e) => setPayMethod(e.target.value as any)}
-                    className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                  >
-                    <option value="cash">Physical Cash Till</option>
-                    <option value="ecocash">EcoCash Merchant</option>
-                    <option value="bank">Bank Transfer</option>
-                    <option value="card">Card</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Payment Date</label>
-                  <input
-                    type="date"
-                    value={payDate}
-                    onChange={(e) => setPayDate(e.target.value)}
-                    className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Reference / Note</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Bank transfer confirmation ref #91024..."
-                  value={payNotes}
-                  onChange={(e) => setPayNotes(e.target.value)}
-                  className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setPayingSupplier(null)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold"
-                >
-                  {isSubmitting ? 'Posting...' : 'Confirm Supplier Payment'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* NEW SUPPLIER MODAL */}
+      {/* Add Supplier Modal */}
       {isSupplierModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 p-5 shadow-2xl space-y-4 text-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-              <h3 className="text-sm font-bold text-white">Add New Supplier Profile</h3>
-              <button onClick={() => setIsSupplierModalOpen(false)} className="text-slate-400 hover:text-white">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-6 text-slate-100 space-y-4 text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Truck className="w-4 h-4 text-cyan-400" />
+                <span>Add Wholesale Supplier</span>
+              </h3>
+              <button onClick={() => setIsSupplierModalOpen(false)} className="p-1 rounded text-slate-400 hover:text-white">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveSupplier} className="space-y-3">
+            <form onSubmit={handleSaveSupplier} className="space-y-3.5">
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-700 overflow-hidden flex items-center justify-center shrink-0">
+                  {suppLogoUrl ? (
+                    <img src={suppLogoUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <ImageIcon className="w-5 h-5 text-slate-600" />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <label className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold cursor-pointer inline-flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>{isCompressingLogo ? 'Compressing...' : 'Upload Logo'}</span>
+                    <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                  </label>
+                  <p className="text-[10px] text-slate-400">Compressed WebP format</p>
+                </div>
+              </div>
+
               <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Company / Supplier Name</label>
+                <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Company / Supplier Legal Name</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Schweppes Zimbabwe Ltd"
                   value={suppName}
                   onChange={(e) => setSuppName(e.target.value)}
-                  className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
-                />
-              </div>
-
-              <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Account Contact Person</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Tendai Dube (Wholesale rep)"
-                  value={suppContact}
-                  onChange={(e) => setSuppContact(e.target.value)}
-                  className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Phone Number</label>
+                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Contact Person</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Farai Dube"
+                    value={suppContact}
+                    onChange={(e) => setSuppContact(e.target.value)}
+                    className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Telephone / WhatsApp</label>
                   <input
                     type="text"
                     required
@@ -664,40 +343,51 @@ export const SupplierPayablesModule: React.FC = () => {
                     className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Payment Terms</label>
+                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={suppEmail}
+                    onChange={(e) => setSuppEmail(e.target.value)}
+                    className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Credit Terms</label>
                   <input
                     type="text"
-                    placeholder="e.g. 7 Days, Net 14 Days"
                     value={suppTerms}
                     onChange={(e) => setSuppTerms(e.target.value)}
+                    placeholder="e.g. Net 14 Days"
                     className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Physical Depot / Address</label>
+                <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">Depot / Warehouse Address</label>
                 <input
                   type="text"
-                  placeholder="e.g. Workington Industrial Area, Harare"
                   value={suppAddress}
                   onChange={(e) => setSuppAddress(e.target.value)}
                   className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsSupplierModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold"
+                  className="px-5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold"
                 >
                   Save Supplier
                 </button>

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { AuthService, normalizePhoneToCobosEmail, ADMIN_EMAIL } from '../../services/authService';
+import { AuthService, normalizePhoneToCobosEmail } from '../../services/authService';
 import type { UserRole } from '../../types';
-import { X, Lock, Mail, Phone, User as UserIcon, Shield, ChevronRight } from 'lucide-react';
+import { X, Lock, Mail, Phone, User as UserIcon, ShieldCheck, KeyRound, AlertCircle } from 'lucide-react';
 import { LegalModal } from '../common/LegalModal';
 
 interface AuthModalProps {
@@ -18,6 +18,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   // Form Fields
   const [identifier, setIdentifier] = useState('');
+  const [pin, setPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<UserRole>('cashier');
@@ -40,16 +42,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setErrorMsg('Please enter your email or phone number.');
       return;
     }
+    if (!pin.trim() || pin.trim().length < 4) {
+      setErrorMsg('Please enter your 4 to 6 digit security PIN.');
+      return;
+    }
 
     setLoading(true);
     setErrorMsg(null);
     try {
-      const user = await AuthService.signIn(identifier, password);
+      const user = await AuthService.signIn(identifier, pin, password);
       setCurrentUser(user);
       triggerRefresh();
       onClose();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Authentication failed. Please verify your credentials.');
+      setErrorMsg(err.message || 'Authentication failed. Please verify your credentials and PIN.');
     } finally {
       setLoading(false);
     }
@@ -57,8 +63,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !identifier.trim() || !password.trim()) {
+    if (!fullName.trim() || !identifier.trim()) {
       setErrorMsg('Please complete all required fields.');
+      return;
+    }
+    if (!pin.trim() || pin.trim().length < 4) {
+      setErrorMsg('Please choose a 4 to 6 digit security PIN.');
+      return;
+    }
+    if (pin.trim() !== confirmPin.trim()) {
+      setErrorMsg('Security PINs do not match. Please re-enter.');
       return;
     }
 
@@ -69,6 +83,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         const { user } = await AuthService.signUpWithPhone({
           fullName,
           phone: identifier,
+          pin: pin.trim(),
           password,
           role,
         });
@@ -77,6 +92,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         const user = await AuthService.signUpWithEmail({
           fullName,
           email: identifier,
+          pin: pin.trim(),
           password,
           role,
         });
@@ -93,6 +109,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
       const user = await AuthService.signInWithGoogle();
       setCurrentUser(user);
@@ -107,19 +124,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xs p-4 overflow-y-auto">
-        <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-6 sm:p-7 text-slate-100 space-y-5">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs p-4 overflow-y-auto">
+        <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-6 sm:p-7 text-slate-100 space-y-4">
           {/* Header */}
           <div className="flex items-center justify-between pb-3 border-b border-slate-800">
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-mono text-cyan-400 font-black text-lg tracking-wider">COBOS</span>
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800">
-                  Business Portal
+                  Secure Access
                 </span>
               </div>
               <h3 className="text-sm font-semibold text-white mt-1">
-                {mode === 'signin' ? 'Sign in to your account' : 'Create an operational account'}
+                {mode === 'signin' ? 'Verify Credentials & Security PIN' : 'Create Protected Staff Account'}
               </h3>
             </div>
             <button
@@ -130,7 +147,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </button>
           </div>
 
-          {/* Google 1-Tap Social Button */}
+          {/* Google 1-Tap Social Button with Database Profile Verification */}
           <button
             type="button"
             onClick={handleGoogleSignIn}
@@ -155,7 +172,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
               />
             </svg>
-            <span>Continue with Google</span>
+            <span>Continue with Google (Verified Cloud Profile)</span>
           </button>
 
           {/* Clean Divider */}
@@ -164,12 +181,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <div className="w-full border-t border-slate-800"></div>
             </div>
             <span className="relative bg-slate-900 px-3 text-[11px] text-slate-400 font-medium">
-              or continue with credentials
+              or enter credentials & PIN
             </span>
           </div>
 
           {/* Credentials Form */}
-          <form onSubmit={mode === 'signin' ? handleSignIn : handleSignUp} className="space-y-3.5 text-xs">
+          <form onSubmit={mode === 'signin' ? handleSignIn : handleSignUp} className="space-y-3 text-xs">
             {/* Method Selector: Email vs Phone */}
             <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800">
               <button
@@ -212,7 +229,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Tendai Moyo"
+                    placeholder="e.g. Tinashe Moyo"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white placeholder-slate-500 focus:outline-hidden focus:border-cyan-500"
@@ -241,7 +258,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 />
               </div>
 
-              {/* Dynamic conversion indicator for phone numbers */}
               {phoneConversion && phoneConversion.isPhone && (
                 <div className="mt-1.5 p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-300 flex items-center justify-between font-mono">
                   <span className="text-slate-400">Account ID:</span>
@@ -250,45 +266,68 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               )}
             </div>
 
-            <div>
-              <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono focus:outline-hidden focus:border-cyan-500"
-                />
+            {/* MANDATORY SECURITY PIN INPUT */}
+            <div className={mode === 'signup' ? 'grid grid-cols-2 gap-2' : ''}>
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-cyan-400 flex items-center gap-1 mb-1">
+                  <KeyRound className="w-3 h-3 text-cyan-400" />
+                  <span>{mode === 'signin' ? 'Security PIN (4-6 Digits)' : 'Choose PIN'}</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    required
+                    placeholder="••••"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-cyan-500/40 text-cyan-300 font-mono tracking-widest text-center text-sm font-bold focus:outline-hidden focus:border-cyan-400"
+                  />
+                </div>
               </div>
+
+              {mode === 'signup' && (
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
+                    Confirm PIN
+                  </label>
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    required
+                    placeholder="••••"
+                    value={confirmPin}
+                    onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-cyan-300 font-mono tracking-widest text-center text-sm font-bold focus:outline-hidden focus:border-cyan-400"
+                  />
+                </div>
+              )}
             </div>
 
             {mode === 'signup' && (
               <div>
                 <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
-                  Requested Role
+                  Operational Role
                 </label>
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value as UserRole)}
                   className="w-full p-2 rounded-xl bg-slate-950 border border-slate-700 text-white focus:outline-hidden"
                 >
-                  <option value="owner">Owner / Administrator (Full Access)</option>
-                  <option value="manager">Branch Manager</option>
-                  <option value="accountant">Accountant</option>
                   <option value="cashier">Salesperson / Cashier</option>
+                  <option value="manager">Company Admin / Manager</option>
+                  <option value="accountant">Accounts Manager</option>
                   <option value="inventory_manager">Inventory Manager</option>
                 </select>
               </div>
             )}
 
             {errorMsg && (
-              <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs">
-                {errorMsg}
+              <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-800 text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{errorMsg}</span>
               </div>
             )}
 
@@ -297,7 +336,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               disabled={loading}
               className="w-full py-2.5 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs shadow-md transition active:scale-[0.99]"
             >
-              {loading ? 'Processing...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+              {loading ? 'Verifying Credentials...' : mode === 'signin' ? 'Verify PIN & Authorize' : 'Create Protected Account'}
             </button>
           </form>
 
@@ -335,7 +374,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           </div>
 
           {/* Legal Links in Modal */}
-          <div className="pt-3 border-t border-slate-800/80 flex items-center justify-center gap-3 text-[11px] text-slate-400">
+          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-center gap-3 text-[11px] text-slate-400">
             <button
               type="button"
               onClick={() => setLegalModalType('terms')}

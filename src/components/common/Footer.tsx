@@ -8,7 +8,7 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({ onOpenTerms, onOpenPrivacy }) => {
   return (
-    <footer className="w-full border-t border-slate-800/80 bg-slate-950/90 py-4 px-4 text-center text-xs text-slate-400 space-y-2 shrink-0">
+    <footer className="w-full border-t border-slate-800/80 bg-slate-950/95 py-6 px-4 text-center text-xs text-slate-400 space-y-2.5 shrink-0 pb-28 lg:pb-6">
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
         <button
           onClick={onOpenTerms}
@@ -29,9 +29,9 @@ export const Footer: React.FC<FooterProps> = ({ onOpenTerms, onOpenPrivacy }) =>
 
       <div className="space-y-1">
         <p className="text-[11px] font-medium text-slate-300">
-          &copy; 2026 COBOS. All Rights Reserved.
+          @2026 COBOS. All Rights Reserved.
         </p>
-        <p className="text-[11px] text-slate-400 flex items-center justify-center gap-1">
+        <p className="text-[11px] text-slate-400 flex items-center justify-center gap-1.5 flex-wrap">
           <span>Developed with</span>
           <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 inline-block animate-pulse" />
           <span>by Comfort Designs -</span>

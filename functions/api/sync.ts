@@ -4,7 +4,7 @@
  */
 
 interface Env {
-  DB: any; // Cloudflare D1 Database binding
+  DB: any;
 }
 
 export const onRequestPost = async (context: { request: Request; env: Env }) => {
@@ -53,8 +53,8 @@ export const onRequestPost = async (context: { request: Request; env: Env }) => 
         } else if (op.entityType === 'transaction' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
           statements.push(
             env.DB.prepare(
-              `INSERT OR REPLACE INTO financial_transactions (id, date, type, category, description, amount, currency, payment_method, account_id, related_entity_id, related_entity_name, journal_entry_id, created_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              `INSERT OR REPLACE INTO financial_transactions (id, date, type, category, description, amount, currency, payment_method, account_id, related_entity_id, related_entity_name, journal_entry_id, created_by, created_by_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
               payload.id,
               payload.date,
@@ -68,16 +68,18 @@ export const onRequestPost = async (context: { request: Request; env: Env }) => 
               payload.relatedEntityId || null,
               payload.relatedEntityName || null,
               payload.journalEntryId,
-              payload.createdBy
+              payload.createdBy,
+              payload.createdById || null
             )
           );
         } else if (op.entityType === 'product' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
           statements.push(
             env.DB.prepare(
-              `INSERT OR REPLACE INTO products (id, sku, barcode, name, category, unit, purchase_cost, selling_price, currency, current_stock, min_stock_level, supplier_name)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              `INSERT OR REPLACE INTO products (id, item_type, sku, barcode, name, category, unit, purchase_cost, selling_price, currency, current_stock, min_stock_level, supplier_name, image_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
               payload.id,
+              payload.itemType || 'product',
               payload.sku,
               payload.barcode || null,
               payload.name,
@@ -88,14 +90,15 @@ export const onRequestPost = async (context: { request: Request; env: Env }) => 
               payload.currency || 'USD',
               payload.currentStock || 0,
               payload.minStockLevel || 5,
-              payload.supplierName || null
+              payload.supplierName || null,
+              payload.imageUrl || null
             )
           );
         } else if (op.entityType === 'customer' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
           statements.push(
             env.DB.prepare(
-              `INSERT OR REPLACE INTO customers (id, name, phone, email, address, notes, credit_limit, outstanding_balance_usd, outstanding_balance_zig, outstanding_balance_zar, last_payment_date)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              `INSERT OR REPLACE INTO customers (id, name, phone, email, address, notes, credit_limit, outstanding_balance_usd, outstanding_balance_zig, outstanding_balance_zar, last_payment_date, avatar_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
               payload.id,
               payload.name,
@@ -107,14 +110,15 @@ export const onRequestPost = async (context: { request: Request; env: Env }) => 
               payload.outstandingBalanceUSD || 0,
               payload.outstandingBalanceZiG || 0,
               payload.outstandingBalanceZAR || 0,
-              payload.lastPaymentDate || null
+              payload.lastPaymentDate || null,
+              payload.avatarUrl || null
             )
           );
         } else if (op.entityType === 'supplier' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
           statements.push(
             env.DB.prepare(
-              `INSERT OR REPLACE INTO suppliers (id, name, contact_person, phone, email, address, payment_terms, outstanding_balance_usd, outstanding_balance_zig, outstanding_balance_zar)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              `INSERT OR REPLACE INTO suppliers (id, name, contact_person, phone, email, address, payment_terms, outstanding_balance_usd, outstanding_balance_zig, outstanding_balance_zar, logo_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
               payload.id,
               payload.name,
@@ -125,25 +129,49 @@ export const onRequestPost = async (context: { request: Request; env: Env }) => 
               payload.paymentTerms || null,
               payload.outstandingBalanceUSD || 0,
               payload.outstandingBalanceZiG || 0,
-              payload.outstandingBalanceZAR || 0
+              payload.outstandingBalanceZAR || 0,
+              payload.logoUrl || null
             )
           );
         } else if (op.entityType === 'user' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
           statements.push(
             env.DB.prepare(
-              `INSERT OR REPLACE INTO users (id, organisation_id, name, email, role)
-               VALUES (?, ?, ?, ?, ?)`
+              `INSERT OR REPLACE INTO users (id, organisation_id, name, email, phone, role, subscription_plan, avatar_url, pin_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
               payload.id,
               payload.organisationId || 'org_default',
               payload.name,
               payload.email,
-              payload.role || 'cashier'
+              payload.phone || null,
+              payload.role || 'cashier',
+              payload.subscriptionPlan || 'standard',
+              payload.avatarUrl || null,
+              payload.pinHash || null
+            )
+          );
+        } else if (op.entityType === 'business_profile' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
+          statements.push(
+            env.DB.prepare(
+              `INSERT OR REPLACE INTO business_profiles (id, organisation_id, name, tagline, address, phone, email, tax_number, logo_url, usd_to_zig_rate, usd_to_zar_rate, receipt_footer)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              payload.id,
+              payload.organisationId || 'org_default',
+              payload.name,
+              payload.tagline || null,
+              payload.address || null,
+              payload.phone || null,
+              payload.email || null,
+              payload.taxNumber || null,
+              payload.logoUrl || null,
+              payload.exchangeRates?.ZiG || 28.5,
+              payload.exchangeRates?.ZAR || 18.2,
+              payload.receiptFooter || null
             )
           );
         }
 
-        // Record into cloud audit log
         statements.push(
           env.DB.prepare(
             `INSERT INTO sync_audit_log (id, entity_type, entity_id, operation) VALUES (?, ?, ?, ?)`

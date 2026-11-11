@@ -128,7 +128,8 @@ export const CashFlowModule: React.FC = () => {
         createdAt,
       };
 
-      await AccountingEngine.postJournalEntry(journalEntry);
+      await db.journalEntries.put(journalEntry);
+      await queueSyncItem('journal_entry', journalEntry.id, 'INSERT', journalEntry);
 
       alert(`Transferred ${fromAcc.currency} ${transferAmount.toFixed(2)} from ${fromAcc.name} to ${toAcc.name} successfully!`);
       setTransferAmount(0);

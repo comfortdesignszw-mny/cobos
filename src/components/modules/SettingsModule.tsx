@@ -1,26 +1,25 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { exportDatabaseBackup, importDatabaseBackup, initializeDatabase, clearAllUserData } from '../../db/cobosDb';
+import { exportDatabaseBackup, importDatabaseBackup, clearAllUserData } from '../../db/cobosDb';
+import { compressImageFile } from '../../utils/imageCompressor';
+import { queueSyncItem } from '../../services/accountingEngine';
 import {
   Settings,
   Building,
   Coins,
-  Cloud,
   Download,
   Upload,
   RotateCcw,
   CheckCircle2,
-  AlertTriangle,
-  Smartphone,
+  Image as ImageIcon,
+  ShieldCheck,
   Save,
   Database,
-  ExternalLink,
-  KeyRound,
-  Lock,
+  User as UserIcon,
 } from 'lucide-react';
 
 export const SettingsModule: React.FC = () => {
-  const { profile, updateProfile, syncState, triggerSync, triggerRefresh } = useApp();
+  const { profile, updateProfile, currentUser, isSuperAdmin, triggerRefresh } = useApp();
 
   const [name, setName] = useState(profile.name);
   const [tagline, setTagline] = useState(profile.tagline);
@@ -29,34 +28,45 @@ export const SettingsModule: React.FC = () => {
   const [email, setEmail] = useState(profile.email);
   const [taxNumber, setTaxNumber] = useState(profile.taxNumber || '');
   const [receiptFooter, setReceiptFooter] = useState(profile.receiptFooter);
+  const [logoUrl, setLogoUrl] = useState(profile.logoUrl || '');
+  const [userAvatarUrl, setUserAvatarUrl] = useState(currentUser.avatarUrl || '');
 
   const [rateZiG, setRateZiG] = useState(profile.exchangeRates.ZiG);
   const [rateZAR, setRateZAR] = useState(profile.exchangeRates.ZAR);
 
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [isCompressingLogo, setIsCompressingLogo] = useState(false);
+  const [isCompressingAvatar, setIsCompressingAvatar] = useState(false);
 
-  const [clerkKeyInput, setClerkKeyInput] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('cobos_clerk_publishable_key') || import.meta.env.VITE_CLERK_PUBLISHABLE_KEY || '';
-    }
-    return '';
-  });
-  const [clerkKeySaved, setClerkKeySaved] = useState(false);
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const handleSaveClerkKey = (e: React.FormEvent) => {
-    e.preventDefault();
-    const clean = clerkKeyInput.trim();
-    if (clean) {
-      localStorage.setItem('cobos_clerk_publishable_key', clean);
-    } else {
-      localStorage.removeItem('cobos_clerk_publishable_key');
+    setIsCompressingLogo(true);
+    try {
+      const compressed = await compressImageFile(file, { maxWidth: 400, maxHeight: 400, quality: 0.8 });
+      setLogoUrl(compressed);
+    } catch (err) {
+      alert('Failed to process company logo image.');
+    } finally {
+      setIsCompressingLogo(false);
     }
-    setClerkKeySaved(true);
-    setTimeout(() => {
-      setClerkKeySaved(false);
-      window.location.reload();
-    }, 1200);
+  };
+
+  const handleUserAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsCompressingAvatar(true);
+    try {
+      const compressed = await compressImageFile(file, { maxWidth: 300, maxHeight: 300, quality: 0.8 });
+      setUserAvatarUrl(compressed);
+    } catch (err) {
+      alert('Failed to process avatar image.');
+    } finally {
+      setIsCompressingAvatar(false);
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -68,6 +78,7 @@ export const SettingsModule: React.FC = () => {
       phone,
       email,
       taxNumber,
+      logoUrl,
       receiptFooter,
       exchangeRates: {
         USD: 1.0,
@@ -75,6 +86,12 @@ export const SettingsModule: React.FC = () => {
         ZAR: rateZAR,
       },
     });
+
+    if (userAvatarUrl !== currentUser.avatarUrl) {
+      currentUser.avatarUrl = userAvatarUrl;
+      await queueSyncItem('user', currentUser.id, 'UPDATE', currentUser);
+    }
+
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
   };
@@ -115,7 +132,7 @@ export const SettingsModule: React.FC = () => {
   };
 
   const handleClearAllData = async () => {
-    const confirmed = confirm('Are you sure you want to clear all transactions, sales, and products? Your chart of accounts and business setup will remain ready for clean operations.');
+    const confirmed = confirm('Are you sure you want to clear all operational records? Your chart of accounts and business setup will remain ready for clean operations.');
     if (confirmed) {
       await clearAllUserData();
       triggerRefresh();
@@ -125,32 +142,95 @@ export const SettingsModule: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-20 max-w-4xl mx-auto text-xs">
-      {/* Header */}
-      <div className="pb-3 border-b border-slate-800">
-        <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          <Settings className="w-5 h-5 text-cyan-400" />
-          Business Configuration & Offline Settings
-        </h2>
-        <p className="text-slate-400">
-          Configure business details, exchange rates, Cloudflare D1 integration, and local backup files.
-        </p>
+      {/* Clean Header */}
+      <div className="pb-3 border-b border-slate-800 flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <Settings className="w-5 h-5 text-cyan-400" />
+            Business Configuration & Operational Settings
+          </h2>
+          <p className="text-slate-400">
+            Manage your company profile, multi-currency rates, logos, and local database recovery.
+          </p>
+        </div>
+        {isSuperAdmin && (
+          <span className="px-2.5 py-1 rounded-full bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-bold text-[10px] flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+            Super Admin Active
+          </span>
+        )}
       </div>
 
       {saveSuccess && (
         <div className="p-3 rounded-xl bg-emerald-950/70 border border-emerald-800 text-emerald-300 flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>Business configuration saved successfully!</span>
+          <span>Business configuration and profile saved successfully!</span>
         </div>
       )}
 
-      {/* SECTION 1: BUSINESS PROFILE */}
+      {/* SECTION 1: BUSINESS PROFILE & LOGO UPLOAD */}
       <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 shadow-lg space-y-4">
         <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
           <Building className="w-4 h-4 text-cyan-400" />
-          <h3 className="text-sm font-bold text-white">Business Profile & Receipts</h3>
+          <h3 className="text-sm font-bold text-white">Business Profile & Company Branding</h3>
         </div>
 
         <form onSubmit={handleSaveProfile} className="space-y-4">
+          {/* Logo & Avatar Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-slate-950/70 border border-slate-800">
+            {/* Company Logo Upload */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-semibold uppercase text-slate-400 block">
+                Company Brand Logo
+              </label>
+              <div className="flex items-center gap-3">
+                <div className="w-14 h-14 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0">
+                  {logoUrl ? (
+                    <img src={logoUrl} alt="Company Logo" className="w-full h-full object-contain" />
+                  ) : (
+                    <Building className="w-6 h-6 text-slate-600" />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <label className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium cursor-pointer inline-flex items-center gap-1.5 transition">
+                    <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>{isCompressingLogo ? 'Compressing...' : 'Upload Logo'}</span>
+                    <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                  </label>
+                  <p className="text-[10px] text-slate-400">
+                    Auto-compressed to lightweight WebP
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* User Profile Avatar Upload */}
+            <div className="space-y-2">
+              <label className="text-[10px] font-semibold uppercase text-slate-400 block">
+                Your Profile Avatar ({currentUser.name})
+              </label>
+              <div className="flex items-center gap-3">
+                <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-700 flex items-center justify-center overflow-hidden shrink-0">
+                  {userAvatarUrl ? (
+                    <img src={userAvatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <UserIcon className="w-6 h-6 text-slate-600" />
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <label className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium cursor-pointer inline-flex items-center gap-1.5 transition">
+                    <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>{isCompressingAvatar ? 'Compressing...' : 'Upload Photo'}</span>
+                    <input type="file" accept="image/*" onChange={handleUserAvatarUpload} className="hidden" />
+                  </label>
+                  <p className="text-[10px] text-slate-400">
+                    Fast loading across all devices
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
@@ -300,116 +380,7 @@ export const SettingsModule: React.FC = () => {
         </form>
       </div>
 
-      {/* SECTION 2: CLERK AUTHENTICATION API CONFIGURATION */}
-      <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 shadow-lg space-y-4">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <KeyRound className="w-4 h-4 text-cyan-400" />
-            <h3 className="text-sm font-bold text-white">Clerk Authentication API Configuration</h3>
-          </div>
-          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">
-            {clerkKeyInput.startsWith('pk_') ? 'Active Key' : 'Not Configured'}
-          </span>
-        </div>
-
-        <p className="text-slate-300 leading-relaxed">
-          COBOS supports full Clerk authentication with <strong>Google Social Sign-in</strong>, <strong>Email & Password</strong>, and <strong>Phone Number credentials</strong> automatically converted to <code className="text-cyan-400 font-mono">number@cobos.zw</code> in the database.
-        </p>
-
-        {clerkKeySaved && (
-          <div className="p-2.5 rounded-xl bg-emerald-950/70 border border-emerald-800 text-emerald-300 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>Clerk API Key saved! Refreshing...</span>
-          </div>
-        )}
-
-        <form onSubmit={handleSaveClerkKey} className="space-y-3">
-          <div>
-            <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
-              Fresh Clerk Publishable Key (pk_test_... or pk_live_...)
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="pk_test_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                value={clerkKeyInput}
-                onChange={(e) => setClerkKeyInput(e.target.value)}
-                className="flex-1 p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-xs focus:outline-hidden focus:border-cyan-500"
-              />
-              <button
-                type="submit"
-                className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold transition whitespace-nowrap"
-              >
-                Save & Apply
-              </button>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800/80 text-[11px] text-slate-400 space-y-1">
-            <div className="flex justify-between items-center text-slate-300">
-              <span>Target Clerk Application:</span>
-              <span className="font-mono text-cyan-300 font-bold">app_3Lw5CSsIIK9QoN3objUAu5AehH5</span>
-            </div>
-            <p>
-              You can obtain or manage this key from the <a href="https://dashboard.clerk.com" target="_blank" rel="noreferrer" className="text-cyan-400 hover:underline inline-flex items-center gap-1">Clerk Dashboard <ExternalLink className="w-3 h-3" /></a> under <strong>API Keys</strong>.
-            </p>
-          </div>
-        </form>
-      </div>
-
-      {/* SECTION 3: CLOUDFLARE PAGES & D1 SQLITE STATUS */}
-      <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 shadow-lg space-y-4">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-800">
-          <div className="flex items-center gap-2">
-            <Cloud className="w-4 h-4 text-cyan-400" />
-            <h3 className="text-sm font-bold text-white">Cloudflare Pages & D1 SQLite Deployment</h3>
-          </div>
-          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800">
-            D1 SQLite Schema Ready
-          </span>
-        </div>
-
-        <div className="space-y-3 text-slate-300">
-          <p>
-            COBOS is engineered for straight deployment to <strong>Cloudflare Pages</strong> with edge database binding to <strong>Cloudflare D1 (SQLite)</strong>.
-          </p>
-
-          <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2 font-mono text-[11px]">
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Cloudflare D1 Binding:</span>
-              <span className="text-cyan-300 font-bold">DB (cobos-db)</span>
-            </div>
-            <div className="flex items-center justify-between text-slate-400">
-              <span>D1 Database ID:</span>
-              <span className="text-white font-bold select-all">3728407e-49be-4763-bc63-0ca451a94c96</span>
-            </div>
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Sync Endpoint:</span>
-              <span className="text-slate-200">/api/sync (Pages Function)</span>
-            </div>
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Offline Queue Backlog:</span>
-              <span className="text-amber-400 font-bold">{syncState.pendingCount} Operations Queued</span>
-            </div>
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Last Cloud Sync:</span>
-              <span className="text-slate-200">{syncState.lastSyncedAt || 'Session Started'}</span>
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              onClick={() => triggerSync()}
-              disabled={syncState.isSyncing}
-              className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold transition flex items-center gap-1.5"
-            >
-              <span>{syncState.isSyncing ? 'Syncing...' : 'Force Cloudflare D1 Sync'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* SECTION 4: DATABASE BACKUP & RESTORE */}
+      {/* SECTION 3: DATABASE BACKUP & RESTORE */}
       <div className="rounded-2xl bg-slate-900 border border-slate-800 p-5 shadow-lg space-y-4">
         <div className="flex items-center gap-2 pb-2 border-b border-slate-800">
           <Database className="w-4 h-4 text-emerald-400" />
@@ -417,7 +388,7 @@ export const SettingsModule: React.FC = () => {
         </div>
 
         <p className="text-slate-400">
-          You can create an offline JSON backup of your entire business database (customers, sales, inventory, ledgers, accounts) and restore it on any device.
+          Export an offline JSON backup of your business records (customers, sales, inventory, ledgers, accounts) or restore backups safely on any device.
         </p>
 
         {importStatus && (

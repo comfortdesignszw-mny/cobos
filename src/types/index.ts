@@ -5,7 +5,21 @@
 
 export type CurrencyCode = 'USD' | 'ZiG' | 'ZAR';
 
-export type UserRole = 'owner' | 'manager' | 'accountant' | 'cashier' | 'inventory_manager';
+/**
+ * Enhanced RBAC Roles:
+ * - super_admin: Munyaradzi Muchineripi (comfort.designszw@gmail.com) - overseas all companies, accounts, subscription upgrades, system audits.
+ * - company_admin / manager: Controls company account, manages staff, approves reversals, oversees inventory.
+ * - accountant: Double-entry ledgers, financial statements, bank/cash reconciliation.
+ * - cashier: Point of sale, record sales & expenses, add inventory, view ONLY their own transactions (cannot edit/reverse without manager approval).
+ * - inventory_manager: Stock additions, audits, supplier invoices.
+ */
+export type UserRole = 
+  | 'super_admin' 
+  | 'owner' 
+  | 'manager' 
+  | 'accountant' 
+  | 'cashier' 
+  | 'inventory_manager';
 
 export interface User {
   id: string;
@@ -16,6 +30,9 @@ export interface User {
   organisationId: string;
   authProvider?: 'clerk_google' | 'clerk_email' | 'clerk_phone';
   avatarUrl?: string;
+  pinHash?: string;
+  subscriptionPlan?: 'standard' | 'professional' | 'enterprise';
+  createdAt?: string;
 }
 
 export interface BusinessProfile {
@@ -29,13 +46,15 @@ export interface BusinessProfile {
   phone: string;
   email: string;
   taxNumber?: string;
+  logoUrl?: string;
+  subscriptionPlan?: 'standard' | 'professional' | 'enterprise';
   defaultCurrency: CurrencyCode;
   supportedCurrencies: CurrencyCode[];
   exchangeRates: {
     // Rates relative to 1 USD
     USD: number;
-    ZiG: number; // e.g. 28.5
-    ZAR: number; // e.g. 18.2
+    ZiG: number;
+    ZAR: number;
   };
   receiptFooter: string;
 }
@@ -80,6 +99,7 @@ export interface JournalEntry {
   description: string;
   lines: JournalEntryLine[];
   createdBy: string;
+  createdById?: string;
   createdAt: string;
   isReversed?: boolean;
   reversedByEntryId?: string;
@@ -112,6 +132,7 @@ export interface FinancialTransaction {
   relatedEntityName?: string;
   journalEntryId: string;
   createdBy: string;
+  createdById?: string;
   createdAt: string;
   syncStatus: 'synced' | 'pending' | 'failed';
   isReversed?: boolean;
@@ -128,6 +149,8 @@ export interface SaleItem {
   costPrice: number;
   total: number;
   currency: CurrencyCode;
+  itemType?: 'product' | 'service';
+  imageUrl?: string;
 }
 
 export interface SalePayment {
@@ -158,14 +181,17 @@ export interface Sale {
   createdAt: string;
 }
 
-// Inventory
+// Inventory: Product vs Service
+export type InventoryItemType = 'product' | 'service';
+
 export interface Product {
   id: string;
+  itemType: InventoryItemType; // 'product' (physical stock tracked) or 'service' (unlimited/labour/consulting)
   sku: string;
   barcode?: string;
   name: string;
   category: string;
-  unit: string; // 'pcs', 'kg', 'box', 'litres'
+  unit: string; // 'pcs', 'kg', 'box', 'hours', 'sessions'
   purchaseCost: number;
   sellingPrice: number;
   currency: CurrencyCode;
@@ -173,6 +199,7 @@ export interface Product {
   minStockLevel: number;
   supplierId?: string;
   supplierName?: string;
+  imageUrl?: string; // compressed WebP/JPEG data URL or Cloudflare URL
   updatedAt: string;
   syncStatus: 'synced' | 'pending' | 'failed';
 }
@@ -184,7 +211,7 @@ export interface StockMovement {
   productId: string;
   productName: string;
   type: StockMovementType;
-  quantityDelta: number; // positive or negative
+  quantityDelta: number;
   stockAfter: number;
   unitCost: number;
   reference: string;
@@ -202,6 +229,7 @@ export interface Customer {
   email?: string;
   address?: string;
   notes?: string;
+  avatarUrl?: string;
   creditLimit: number;
   outstandingBalanceUSD: number;
   outstandingBalanceZiG: number;
@@ -234,6 +262,7 @@ export interface Supplier {
   phone: string;
   email?: string;
   address?: string;
+  logoUrl?: string;
   paymentTerms?: string;
   outstandingBalanceUSD: number;
   outstandingBalanceZiG: number;
@@ -303,7 +332,7 @@ export interface CashReconciliation {
 // Offline Sync Queue
 export interface SyncQueueItem {
   id: string;
-  entityType: 'sale' | 'transaction' | 'product' | 'customer' | 'customer_payment' | 'supplier' | 'supplier_payment' | 'stock_movement' | 'journal_entry';
+  entityType: 'sale' | 'transaction' | 'product' | 'customer' | 'customer_payment' | 'supplier' | 'supplier_payment' | 'stock_movement' | 'journal_entry' | 'business_profile' | 'user';
   entityId: string;
   operation: 'INSERT' | 'UPDATE' | 'DELETE';
   payload: string; // JSON

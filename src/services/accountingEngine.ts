@@ -45,27 +45,26 @@ export async function queueSyncItem(
 }
 
 /**
- * Central Accounting Engine
+ * Central Accounting Engine with Double-Entry and RBAC Auditing
  */
 export class AccountingEngine {
   /**
    * Validates that debits equal credits in a journal entry
    */
   static validateDoubleEntry(lines: JournalEntryLine[]): boolean {
-    // Group by currency to ensure debits and credits balance in the SAME currency
     const balancesByCurrency: Record<string, { debits: number; credits: number }> = {};
 
     for (const line of lines) {
       if (!balancesByCurrency[line.currency]) {
         balancesByCurrency[line.currency] = { debits: 0, credits: 0 };
       }
-      balancesByCurrency[line.currency].debits += line.debit;
-      balancesByCurrency[line.currency].credits += line.credit;
+      balancesByCurrency[line.currency].debits += Number(line.debit) || 0;
+      balancesByCurrency[line.currency].credits += Number(line.credit) || 0;
     }
 
-    for (const [curr, { debits, credits }] of Object.entries(balancesByCurrency)) {
-      if (Math.abs(debits - credits) > 0.001) {
-        console.error(`Journal entry unbalanced in currency ${curr}: Debits = ${debits}, Credits = ${credits}`);
+    for (const curr in balancesByCurrency) {
+      const diff = Math.abs(balancesByCurrency[curr].debits - balancesByCurrency[curr].credits);
+      if (diff > 0.009) {
         return false;
       }
     }
@@ -73,251 +72,257 @@ export class AccountingEngine {
   }
 
   /**
-   * Posts a validated journal entry and updates Chart of Account balances
+   * Process a POS Sale with automatic double-entry creation and stock decrement
    */
-  static async postJournalEntry(entry: JournalEntry): Promise<void> {
-    if (!this.validateDoubleEntry(entry.lines)) {
-      throw new Error('Accounting Violation: Journal entry debits and credits do not balance.');
-    }
-
-    await db.journalEntries.put(entry);
-    await queueSyncItem('journal_entry', entry.id, 'INSERT', entry);
-
-    // Update individual account balances
-    for (const line of entry.lines) {
-      const account = await db.accounts.get(line.accountId);
-      if (account) {
-        let delta = 0;
-        // Accounting standard rule:
-        // Asset & Expense normal balance is DEBIT: balance increases with debit, decreases with credit.
-        // Liability, Equity, Revenue normal balance is CREDIT: balance increases with credit, decreases with debit.
-        if (['asset', 'expense', 'cogs'].includes(account.type)) {
-          delta = line.debit - line.credit;
-        } else {
-          delta = line.credit - line.debit;
-        }
-
-        const newBalance = (account.balance || 0) + delta;
-        await db.accounts.update(account.id, { balance: newBalance });
-      }
-    }
-  }
-
-  /**
-   * 1. Record POS Sale (Cash or Credit)
-   * Updates inventory, recognizes revenue, posts COGS, updates cash/AR, creates journal & transaction
-   */
-  static async processSale(saleData: Omit<Sale, 'id' | 'journalEntryId' | 'receiptNumber' | 'createdAt' | 'syncStatus'>): Promise<Sale> {
-    const saleId = generateUUID();
-    const receiptNum = 'REC-' + new Date().getFullYear() + '-' + Math.floor(100000 + Math.random() * 900000);
-    const createdAt = new Date().toISOString();
-    const journalEntryId = generateUUID();
-
-    let totalCogs = 0;
-    for (const item of saleData.items) {
-      totalCogs += (item.costPrice || 0) * item.quantity;
-    }
-
-    // Determine Accounts based on currency
-    const isZiG = saleData.currency === 'ZiG';
-    const isZar = saleData.currency === 'ZAR';
-
-    const salesRevAccount = isZiG ? 'acc_sales_rev_zig' : 'acc_sales_rev_usd';
-    const cogsAccount = isZiG ? 'acc_cogs_zig' : 'acc_cogs_usd';
-    const arAccount = isZiG ? 'acc_ar_zig' : 'acc_ar_usd';
-    const cashAccount = isZiG ? 'acc_cash_zig' : 'acc_cash_usd';
-    const cashDrawerId = isZiG ? 'cash_zig_drawer' : 'cash_usd_drawer';
+  static async processSale(params: {
+    sale: Omit<Sale, 'id' | 'journalEntryId' | 'syncStatus' | 'createdAt'>;
+    userId: string;
+    userName: string;
+    userEmail?: string;
+  }): Promise<{ sale: Sale; journalEntry: JournalEntry }> {
+    const saleId = 'sale_' + generateUUID();
+    const journalEntryId = 'je_' + generateUUID();
+    const now = new Date().toISOString();
+    const saleCurrency = params.sale.currency;
 
     const journalLines: JournalEntryLine[] = [];
 
-    // Credit portion vs Cash portion
-    const cashPaid = saleData.payments.reduce((sum, p) => sum + p.amount, 0);
-    const creditAmount = saleData.total - cashPaid;
+    // 1. Debit Payment Accounts
+    for (const payment of params.sale.payments) {
+      let targetAccountId = 'acc_cash_usd';
+      let targetAccountName = 'Cash in Hand (USD)';
 
-    // 1. Payment or Accounts Receivable debit
-    if (cashPaid > 0) {
-      journalLines.push({
-        id: generateUUID(),
-        accountId: cashAccount,
-        accountName: isZiG ? 'Cash in Hand (ZiG)' : 'Cash in Hand (USD)',
-        debit: cashPaid,
-        credit: 0,
-        currency: saleData.currency,
-        description: `POS Payment for ${receiptNum}`,
-      });
-    }
-
-    if (creditAmount > 0) {
-      journalLines.push({
-        id: generateUUID(),
-        accountId: arAccount,
-        accountName: isZiG ? 'Accounts Receivable (ZiG)' : 'Accounts Receivable (USD)',
-        debit: creditAmount,
-        credit: 0,
-        currency: saleData.currency,
-        description: `Credit Sale to ${saleData.customerName || 'Customer'}`,
-      });
-    }
-
-    // 2. Revenue credit
-    journalLines.push({
-      id: generateUUID(),
-      accountId: salesRevAccount,
-      accountName: isZiG ? 'Sales Revenue (ZiG)' : 'Sales Revenue (USD)',
-      debit: 0,
-      credit: saleData.total,
-      currency: saleData.currency,
-      description: `Sales revenue for ${receiptNum}`,
-    });
-
-    // 3. Inventory and COGS posting (if cost price exists)
-    if (totalCogs > 0 && !isZiG) { // for USD items
-      journalLines.push({
-        id: generateUUID(),
-        accountId: cogsAccount,
-        accountName: 'Cost of Goods Sold (USD)',
-        debit: totalCogs,
-        credit: 0,
-        currency: 'USD',
-        description: `COGS for ${receiptNum}`,
-      });
-      journalLines.push({
-        id: generateUUID(),
-        accountId: 'acc_inventory_usd',
-        accountName: 'Merchandise Inventory (USD)',
-        debit: 0,
-        credit: totalCogs,
-        currency: 'USD',
-        description: `Inventory reduction for ${receiptNum}`,
-      });
-    }
-
-    const journalEntry: JournalEntry = {
-      id: journalEntryId,
-      organisationId: 'org_default',
-      date: saleData.date,
-      reference: receiptNum,
-      sourceType: creditAmount > 0 ? 'credit_sale' : 'sale',
-      sourceId: saleId,
-      description: `Sale ${receiptNum} - ${saleData.customerName || 'Walk-in'} (${saleData.items.length} items)`,
-      lines: journalLines,
-      createdBy: saleData.cashierName,
-      createdAt,
-    };
-
-    // Post to General Ledger
-    await this.postJournalEntry(journalEntry);
-
-    // Save Sale record
-    const sale: Sale = {
-      ...saleData,
-      id: saleId,
-      receiptNumber: receiptNum,
-      journalEntryId,
-      isCredit: creditAmount > 0,
-      creditBalanceRemaining: creditAmount > 0 ? creditAmount : 0,
-      createdAt,
-      syncStatus: 'pending',
-    };
-    await db.sales.put(sale);
-    await queueSyncItem('sale', sale.id, 'INSERT', sale);
-
-    // Update Cash Drawer balance if cash paid
-    if (cashPaid > 0) {
-      const drawer = await db.cashAccounts.get(cashDrawerId);
-      if (drawer) {
-        await db.cashAccounts.update(cashDrawerId, { balance: (drawer.balance || 0) + cashPaid });
+      if (payment.currency === 'ZiG') {
+        if (payment.method === 'ecocash') {
+          targetAccountId = 'acc_ecocash_zig';
+          targetAccountName = 'EcoCash Mobile Money (ZiG)';
+        } else {
+          targetAccountId = 'acc_cash_zig';
+          targetAccountName = 'Cash in Hand (ZiG)';
+        }
+      } else {
+        if (payment.method === 'bank' || payment.method === 'card') {
+          targetAccountId = 'acc_bank_usd';
+          targetAccountName = 'Bank Clearing (USD)';
+        } else {
+          targetAccountId = 'acc_cash_usd';
+          targetAccountName = 'Cash in Hand (USD)';
+        }
       }
 
-      // Financial Transaction
-      const tx: FinancialTransaction = {
+      journalLines.push({
         id: generateUUID(),
-        organisationId: 'org_default',
-        date: saleData.date,
-        type: 'sale',
-        category: 'POS Sales',
-        description: `POS Sale Receipt ${receiptNum}`,
-        amount: cashPaid,
-        currency: saleData.currency,
-        paymentMethod: saleData.payments[0]?.method || 'cash',
-        accountId: cashAccount,
-        journalEntryId,
-        createdBy: saleData.cashierName,
-        createdAt,
-        syncStatus: 'pending',
-      };
-      await db.transactions.put(tx);
-      await queueSyncItem('transaction', tx.id, 'INSERT', tx);
+        accountId: targetAccountId,
+        accountName: targetAccountName,
+        debit: payment.amount,
+        credit: 0,
+        currency: payment.currency,
+        description: `Sale payment via ${payment.method} (${params.sale.receiptNumber})`,
+      });
+
+      // Update cash drawer / asset account balance
+      const acc = await db.accounts.get(targetAccountId);
+      if (acc) {
+        await db.accounts.update(targetAccountId, { balance: (acc.balance || 0) + payment.amount });
+      }
+      const cAcc = await db.cashAccounts.get(targetAccountId === 'acc_cash_usd' ? 'cash_usd_drawer' : targetAccountId === 'acc_cash_zig' ? 'cash_zig_drawer' : targetAccountId === 'acc_ecocash_zig' ? 'cash_ecocash_merchant' : 'cash_bank_usd');
+      if (cAcc) {
+        await db.cashAccounts.update(cAcc.id, { balance: (cAcc.balance || 0) + payment.amount });
+      }
     }
 
-    // If Credit Sale, update Customer balance
-    if (creditAmount > 0 && saleData.customerId) {
-      const cust = await db.customers.get(saleData.customerId);
-      if (cust) {
-        if (saleData.currency === 'ZiG') {
-          await db.customers.update(cust.id, {
-            outstandingBalanceZiG: (cust.outstandingBalanceZiG || 0) + creditAmount,
-          });
-        } else if (saleData.currency === 'ZAR') {
-          await db.customers.update(cust.id, {
-            outstandingBalanceZAR: (cust.outstandingBalanceZAR || 0) + creditAmount,
-          });
-        } else {
-          await db.customers.update(cust.id, {
-            outstandingBalanceUSD: (cust.outstandingBalanceUSD || 0) + creditAmount,
-          });
+    // 2. Debit Accounts Receivable if sale is on credit
+    if (params.sale.isCredit && params.sale.creditBalanceRemaining > 0) {
+      const arAccountId = saleCurrency === 'ZiG' ? 'acc_ar_zig' : 'acc_ar_usd';
+      const arAccountName = saleCurrency === 'ZiG' ? 'Accounts Receivable (ZiG)' : 'Accounts Receivable (USD)';
+
+      journalLines.push({
+        id: generateUUID(),
+        accountId: arAccountId,
+        accountName: arAccountName,
+        debit: params.sale.creditBalanceRemaining,
+        credit: 0,
+        currency: saleCurrency,
+        description: `Credit customer balance for ${params.sale.customerName || 'Customer'}`,
+      });
+
+      const arAcc = await db.accounts.get(arAccountId);
+      if (arAcc) {
+        await db.accounts.update(arAccountId, { balance: (arAcc.balance || 0) + params.sale.creditBalanceRemaining });
+      }
+
+      // Update customer outstanding balance
+      if (params.sale.customerId) {
+        const cust = await db.customers.get(params.sale.customerId);
+        if (cust) {
+          if (saleCurrency === 'ZiG') {
+            await db.customers.update(cust.id, {
+              outstandingBalanceZiG: (cust.outstandingBalanceZiG || 0) + params.sale.creditBalanceRemaining,
+            });
+          } else {
+            await db.customers.update(cust.id, {
+              outstandingBalanceUSD: (cust.outstandingBalanceUSD || 0) + params.sale.creditBalanceRemaining,
+            });
+          }
         }
       }
     }
 
-    // Deduct Inventory and record Stock Movements
-    for (const item of saleData.items) {
-      const prod = await db.products.get(item.productId);
-      if (prod) {
-        const newStock = Math.max(0, (prod.currentStock || 0) - item.quantity);
-        await db.products.update(prod.id, {
-          currentStock: newStock,
-          updatedAt: createdAt,
-          syncStatus: 'pending',
-        });
-        await queueSyncItem('product', prod.id, 'UPDATE', { ...prod, currentStock: newStock });
+    // 3. Credit Sales Revenue
+    const revenueAccountId = saleCurrency === 'ZiG' ? 'acc_sales_rev_zig' : 'acc_sales_rev_usd';
+    const revenueAccountName = saleCurrency === 'ZiG' ? 'Sales Revenue (ZiG)' : 'Sales Revenue (USD)';
 
+    journalLines.push({
+      id: generateUUID(),
+      accountId: revenueAccountId,
+      accountName: revenueAccountName,
+      debit: 0,
+      credit: params.sale.total,
+      currency: saleCurrency,
+      description: `Sales revenue for ${params.sale.receiptNumber}`,
+    });
+
+    const revAcc = await db.accounts.get(revenueAccountId);
+    if (revAcc) {
+      await db.accounts.update(revenueAccountId, { balance: (revAcc.balance || 0) + params.sale.total });
+    }
+
+    // 4. Calculate COGS & Inventory Reductions (Products Only, Skip Services)
+    let totalCogs = 0;
+    for (const item of params.sale.items) {
+      const product = await db.products.get(item.productId);
+      // Only reduce inventory and record COGS for tangible products, not services
+      if (product && product.itemType !== 'service') {
+        const lineCost = (product.purchaseCost || 0) * item.quantity;
+        totalCogs += lineCost;
+
+        // Decrement physical stock
+        const newStock = Math.max(0, product.currentStock - item.quantity);
+        await db.products.update(product.id, {
+          currentStock: newStock,
+          updatedAt: now,
+        });
+
+        // Record stock movement
         const movement: StockMovement = {
           id: generateUUID(),
-          productId: prod.id,
-          productName: prod.name,
+          productId: product.id,
+          productName: product.name,
           type: 'sale',
           quantityDelta: -item.quantity,
           stockAfter: newStock,
-          unitCost: item.costPrice,
-          reference: receiptNum,
-          notes: `POS Sale to ${saleData.customerName || 'Walk-in'}`,
-          date: saleData.date,
-          performedBy: saleData.cashierName,
-          createdAt,
+          unitCost: product.purchaseCost,
+          reference: params.sale.receiptNumber,
+          notes: `POS sale to ${params.sale.customerName || 'Walk-in'}`,
+          date: params.sale.date,
+          performedBy: params.userName,
+          createdAt: now,
         };
         await db.stockMovements.put(movement);
         await queueSyncItem('stock_movement', movement.id, 'INSERT', movement);
       }
     }
 
-    // Audit Log
-    await db.auditLogs.put({
-      id: generateUUID(),
-      action: 'POS_SALE_COMPLETED',
-      entity: 'SALE',
-      entityId: saleId,
-      performedBy: saleData.cashierName,
-      details: `Sale ${receiptNum} completed for ${saleData.currency} ${saleData.total.toFixed(2)}`,
-      timestamp: createdAt,
-    });
+    // Record COGS journal lines if products were sold
+    if (totalCogs > 0) {
+      const cogsAccountId = saleCurrency === 'ZiG' ? 'acc_cogs_zig' : 'acc_cogs_usd';
+      const cogsAccountName = saleCurrency === 'ZiG' ? 'Cost of Goods Sold (ZiG)' : 'Cost of Goods Sold (USD)';
+      const invAccountId = 'acc_inventory_usd';
+      const invAccountName = 'Merchandise Inventory (USD)';
 
-    return sale;
+      journalLines.push({
+        id: generateUUID(),
+        accountId: cogsAccountId,
+        accountName: cogsAccountName,
+        debit: totalCogs,
+        credit: 0,
+        currency: saleCurrency,
+        description: `COGS for ${params.sale.receiptNumber}`,
+      });
+
+      journalLines.push({
+        id: generateUUID(),
+        accountId: invAccountId,
+        accountName: invAccountName,
+        debit: 0,
+        credit: totalCogs,
+        currency: saleCurrency,
+        description: `Inventory reduction for ${params.sale.receiptNumber}`,
+      });
+
+      const cogsAcc = await db.accounts.get(cogsAccountId);
+      if (cogsAcc) {
+        await db.accounts.update(cogsAccountId, { balance: (cogsAcc.balance || 0) + totalCogs });
+      }
+      const invAcc = await db.accounts.get(invAccountId);
+      if (invAcc) {
+        await db.accounts.update(invAccountId, { balance: (invAcc.balance || 0) - totalCogs });
+      }
+    }
+
+    // Validate double-entry equality
+    if (!this.validateDoubleEntry(journalLines)) {
+      throw new Error('Double-entry bookkeeping validation failed: Debits do not equal credits.');
+    }
+
+    // Construct immutable Journal Entry
+    const journalEntry: JournalEntry = {
+      id: journalEntryId,
+      organisationId: 'org_default',
+      date: params.sale.date,
+      reference: params.sale.receiptNumber,
+      sourceType: 'sale',
+      sourceId: saleId,
+      description: `Sale ${params.sale.receiptNumber} (${params.sale.customerName || 'Walk-in Customer'})`,
+      lines: journalLines,
+      createdBy: params.userName,
+      createdById: params.userId,
+      createdAt: now,
+    };
+    await db.journalEntries.put(journalEntry);
+    await queueSyncItem('journal_entry', journalEntry.id, 'INSERT', journalEntry);
+
+    // Save Final Sale record
+    const sale: Sale = {
+      ...params.sale,
+      id: saleId,
+      cashierId: params.userId,
+      cashierName: params.userName,
+      journalEntryId,
+      syncStatus: 'pending',
+      createdAt: now,
+    };
+    await db.sales.put(sale);
+    await queueSyncItem('sale', sale.id, 'INSERT', sale);
+
+    // Save Financial Transaction record with cashier ownership
+    const transaction: FinancialTransaction = {
+      id: 'tx_' + generateUUID(),
+      organisationId: 'org_default',
+      date: params.sale.date,
+      type: 'sale',
+      category: 'Sales Revenue',
+      description: `POS Sale Receipt #${params.sale.receiptNumber}`,
+      amount: params.sale.total,
+      currency: saleCurrency,
+      paymentMethod: params.sale.payments[0]?.method || 'cash',
+      accountId: revenueAccountId,
+      relatedEntityId: params.sale.customerId,
+      relatedEntityName: params.sale.customerName,
+      journalEntryId,
+      createdBy: params.userName,
+      createdById: params.userId,
+      createdAt: now,
+      syncStatus: 'pending',
+    };
+    await db.transactions.put(transaction);
+    await queueSyncItem('transaction', transaction.id, 'INSERT', transaction);
+
+    return { sale, journalEntry };
   }
 
   /**
-   * 2. Record Operating Expense
-   * Debits Expense Account, Credits Cash/Bank/EcoCash
+   * Record Operating Expense
    */
   static async recordExpense(params: {
     date: string;
@@ -326,68 +331,86 @@ export class AccountingEngine {
     amount: number;
     currency: CurrencyCode;
     paymentMethod: 'cash' | 'ecocash' | 'bank' | 'card';
-    expenseAccountId?: string;
-    performedBy: string;
+    userId: string;
+    userName: string;
   }): Promise<FinancialTransaction> {
-    const txId = generateUUID();
-    const journalId = generateUUID();
-    const createdAt = new Date().toISOString();
+    const txId = 'tx_' + generateUUID();
+    const journalEntryId = 'je_' + generateUUID();
+    const now = new Date().toISOString();
 
-    const isZiG = params.currency === 'ZiG';
-    const cashAccountId = isZiG ? 'acc_cash_zig' : 'acc_cash_usd';
-    const cashDrawerId = isZiG ? 'cash_zig_drawer' : 'cash_usd_drawer';
+    const expenseAccountId = 'acc_exp_misc';
+    const expenseAccountName = `${params.category} Expense`;
 
-    // Map category to chart of accounts if not specified
-    let targetExpenseAcc = params.expenseAccountId || 'acc_exp_misc';
-    const catLower = params.category.toLowerCase();
-    if (catLower.includes('rent')) targetExpenseAcc = 'acc_exp_rent';
-    else if (catLower.includes('salar') || catLower.includes('wage')) targetExpenseAcc = 'acc_exp_salaries';
-    else if (catLower.includes('util') || catLower.includes('water') || catLower.includes('elect') || catLower.includes('zesa')) targetExpenseAcc = 'acc_exp_utilities';
-    else if (catLower.includes('trans') || catLower.includes('fuel')) targetExpenseAcc = 'acc_exp_transport';
-    else if (catLower.includes('market') || catLower.includes('ad')) targetExpenseAcc = 'acc_exp_marketing';
-    else if (catLower.includes('repair') || catLower.includes('maint')) targetExpenseAcc = 'acc_exp_repairs';
-    else if (catLower.includes('bank') || catLower.includes('charg') || catLower.includes('ecocash')) targetExpenseAcc = 'acc_exp_bank_charges';
+    let cashAccountId = 'acc_cash_usd';
+    let cashAccountName = 'Cash in Hand (USD)';
 
-    const expenseAccountObj = await db.accounts.get(targetExpenseAcc);
+    if (params.currency === 'ZiG') {
+      if (params.paymentMethod === 'ecocash') {
+        cashAccountId = 'acc_ecocash_zig';
+        cashAccountName = 'EcoCash Mobile Money (ZiG)';
+      } else {
+        cashAccountId = 'acc_cash_zig';
+        cashAccountName = 'Cash in Hand (ZiG)';
+      }
+    } else {
+      if (params.paymentMethod === 'bank' || params.paymentMethod === 'card') {
+        cashAccountId = 'acc_bank_usd';
+        cashAccountName = 'Bank Clearing (USD)';
+      } else {
+        cashAccountId = 'acc_cash_usd';
+        cashAccountName = 'Cash in Hand (USD)';
+      }
+    }
+
+    const journalLines: JournalEntryLine[] = [
+      {
+        id: generateUUID(),
+        accountId: expenseAccountId,
+        accountName: expenseAccountName,
+        debit: params.amount,
+        credit: 0,
+        currency: params.currency,
+        description: params.description,
+      },
+      {
+        id: generateUUID(),
+        accountId: cashAccountId,
+        accountName: cashAccountName,
+        debit: 0,
+        credit: params.amount,
+        currency: params.currency,
+        description: `Disbursement for ${params.description}`,
+      },
+    ];
+
+    if (!this.validateDoubleEntry(journalLines)) {
+      throw new Error('Expense double-entry validation failed: Debits do not equal credits.');
+    }
 
     const journalEntry: JournalEntry = {
-      id: journalId,
+      id: journalEntryId,
       organisationId: 'org_default',
       date: params.date,
-      reference: 'EXP-' + txId.substring(0, 6).toUpperCase(),
+      reference: 'EXP-' + Math.floor(1000 + Math.random() * 9000),
       sourceType: 'expense',
       sourceId: txId,
-      description: `Expense: ${params.category} - ${params.description}`,
-      lines: [
-        {
-          id: generateUUID(),
-          accountId: targetExpenseAcc,
-          accountName: expenseAccountObj?.name || params.category,
-          debit: params.amount,
-          credit: 0,
-          currency: params.currency,
-          description: params.description,
-        },
-        {
-          id: generateUUID(),
-          accountId: cashAccountId,
-          accountName: isZiG ? 'Cash in Hand (ZiG)' : 'Cash in Hand (USD)',
-          debit: 0,
-          credit: params.amount,
-          currency: params.currency,
-          description: `Paid via ${params.paymentMethod}`,
-        },
-      ],
-      createdBy: params.performedBy,
-      createdAt,
+      description: params.description,
+      lines: journalLines,
+      createdBy: params.userName,
+      createdById: params.userId,
+      createdAt: now,
     };
+    await db.journalEntries.put(journalEntry);
+    await queueSyncItem('journal_entry', journalEntry.id, 'INSERT', journalEntry);
 
-    await this.postJournalEntry(journalEntry);
-
-    // Update Drawer balance
-    const drawer = await db.cashAccounts.get(cashDrawerId);
-    if (drawer) {
-      await db.cashAccounts.update(cashDrawerId, { balance: (drawer.balance || 0) - params.amount });
+    // Update balances
+    const cashAcc = await db.accounts.get(cashAccountId);
+    if (cashAcc) {
+      await db.accounts.update(cashAccountId, { balance: (cashAcc.balance || 0) - params.amount });
+    }
+    const cAcc = await db.cashAccounts.get(cashAccountId === 'acc_cash_usd' ? 'cash_usd_drawer' : cashAccountId === 'acc_cash_zig' ? 'cash_zig_drawer' : cashAccountId === 'acc_ecocash_zig' ? 'cash_ecocash_merchant' : 'cash_bank_usd');
+    if (cAcc) {
+      await db.cashAccounts.update(cAcc.id, { balance: (cAcc.balance || 0) - params.amount });
     }
 
     const tx: FinancialTransaction = {
@@ -401,486 +424,113 @@ export class AccountingEngine {
       currency: params.currency,
       paymentMethod: params.paymentMethod,
       accountId: cashAccountId,
-      journalEntryId: journalId,
-      createdBy: params.performedBy,
-      createdAt,
+      journalEntryId,
+      createdBy: params.userName,
+      createdById: params.userId,
+      createdAt: now,
       syncStatus: 'pending',
     };
-
     await db.transactions.put(tx);
     await queueSyncItem('transaction', tx.id, 'INSERT', tx);
-
-    await db.auditLogs.put({
-      id: generateUUID(),
-      action: 'EXPENSE_RECORDED',
-      entity: 'EXPENSE',
-      entityId: txId,
-      performedBy: params.performedBy,
-      details: `${params.category}: ${params.currency} ${params.amount} - ${params.description}`,
-      timestamp: createdAt,
-    });
 
     return tx;
   }
 
   /**
-   * 3. Record Customer Debt Payment
-   * Customer pays partial or full debt:
-   * Debits Cash/Bank/EcoCash, Credits Accounts Receivable, Updates Customer Balance
+   * Reverse transaction - restricted to Manager or Super Admin
    */
-  static async recordCustomerPayment(params: {
-    customerId: string;
-    amount: number;
-    currency: CurrencyCode;
-    paymentMethod: 'cash' | 'ecocash' | 'bank' | 'card';
-    date: string;
-    notes?: string;
+  static async reverseTransaction(params: {
+    transactionId: string;
+    reason: string;
     performedBy: string;
-  }): Promise<CustomerPayment> {
-    const cust = await db.customers.get(params.customerId);
-    if (!cust) throw new Error('Customer not found');
-
-    const paymentId = generateUUID();
-    const journalId = generateUUID();
-    const createdAt = new Date().toISOString();
-
-    const isZiG = params.currency === 'ZiG';
-    const cashAccountId = isZiG ? 'acc_cash_zig' : 'acc_cash_usd';
-    const arAccountId = isZiG ? 'acc_ar_zig' : 'acc_ar_usd';
-    const cashDrawerId = isZiG ? 'cash_zig_drawer' : 'cash_usd_drawer';
-
-    const journalEntry: JournalEntry = {
-      id: journalId,
-      organisationId: 'org_default',
-      date: params.date,
-      reference: 'PAY-' + paymentId.substring(0, 6).toUpperCase(),
-      sourceType: 'customer_payment',
-      sourceId: paymentId,
-      description: `Debt payment received from ${cust.name}`,
-      lines: [
-        {
-          id: generateUUID(),
-          accountId: cashAccountId,
-          accountName: isZiG ? 'Cash in Hand (ZiG)' : 'Cash in Hand (USD)',
-          debit: params.amount,
-          credit: 0,
-          currency: params.currency,
-          description: `Customer payment received via ${params.paymentMethod}`,
-        },
-        {
-          id: generateUUID(),
-          accountId: arAccountId,
-          accountName: isZiG ? 'Accounts Receivable (ZiG)' : 'Accounts Receivable (USD)',
-          debit: 0,
-          credit: params.amount,
-          currency: params.currency,
-          description: `Receivable reduction for ${cust.name}`,
-        },
-      ],
-      createdBy: params.performedBy,
-      createdAt,
-    };
-
-    await this.postJournalEntry(journalEntry);
-
-    // Update customer debt balance
-    if (params.currency === 'ZiG') {
-      const newBal = Math.max(0, (cust.outstandingBalanceZiG || 0) - params.amount);
-      await db.customers.update(cust.id, { outstandingBalanceZiG: newBal, lastPaymentDate: params.date });
-    } else if (params.currency === 'ZAR') {
-      const newBal = Math.max(0, (cust.outstandingBalanceZAR || 0) - params.amount);
-      await db.customers.update(cust.id, { outstandingBalanceZAR: newBal, lastPaymentDate: params.date });
-    } else {
-      const newBal = Math.max(0, (cust.outstandingBalanceUSD || 0) - params.amount);
-      await db.customers.update(cust.id, { outstandingBalanceUSD: newBal, lastPaymentDate: params.date });
+    performedById: string;
+    userRole: string;
+  }): Promise<{ reversalTx: FinancialTransaction; reversalJournal: JournalEntry }> {
+    if (params.userRole === 'cashier') {
+      throw new Error('Cashiers are not permitted to reverse or cancel transactions without Company Admin/Manager approval.');
     }
 
-    // Update drawer balance
-    const drawer = await db.cashAccounts.get(cashDrawerId);
-    if (drawer) {
-      await db.cashAccounts.update(cashDrawerId, { balance: (drawer.balance || 0) + params.amount });
-    }
+    const originalTx = await db.transactions.get(params.transactionId);
+    if (!originalTx) throw new Error('Transaction not found.');
+    if (originalTx.isReversed) throw new Error('Transaction has already been reversed.');
 
-    const payment: CustomerPayment = {
-      id: paymentId,
-      customerId: cust.id,
-      customerName: cust.name,
-      amount: params.amount,
-      currency: params.currency,
-      paymentMethod: params.paymentMethod,
-      date: params.date,
-      notes: params.notes,
-      receivedBy: params.performedBy,
-      journalEntryId: journalId,
-      createdAt,
-      syncStatus: 'pending',
-    };
-    await db.customerPayments.put(payment);
-    await queueSyncItem('customer_payment', payment.id, 'INSERT', payment);
+    const originalJournal = await db.journalEntries.get(originalTx.journalEntryId);
+    if (!originalJournal) throw new Error('Associated journal entry not found.');
 
-    // Financial Transaction
-    const tx: FinancialTransaction = {
+    const now = new Date().toISOString();
+    const reversalJournalId = 'je_rev_' + generateUUID();
+    const reversalTxId = 'tx_rev_' + generateUUID();
+
+    // Mirror journal lines: swap debits and credits
+    const reversalLines: JournalEntryLine[] = originalJournal.lines.map((line) => ({
       id: generateUUID(),
-      organisationId: 'org_default',
-      date: params.date,
-      type: 'customer_payment',
-      category: 'Customer Collections',
-      description: `Debt payment received from ${cust.name}`,
-      amount: params.amount,
-      currency: params.currency,
-      paymentMethod: params.paymentMethod,
-      accountId: cashAccountId,
-      relatedEntityId: cust.id,
-      relatedEntityName: cust.name,
-      journalEntryId: journalId,
-      createdBy: params.performedBy,
-      createdAt,
-      syncStatus: 'pending',
-    };
-    await db.transactions.put(tx);
-    await queueSyncItem('transaction', tx.id, 'INSERT', tx);
-
-    await db.auditLogs.put({
-      id: generateUUID(),
-      action: 'CUSTOMER_PAYMENT_RECEIVED',
-      entity: 'CUSTOMER',
-      entityId: cust.id,
-      performedBy: params.performedBy,
-      details: `Received ${params.currency} ${params.amount.toFixed(2)} from ${cust.name}`,
-      timestamp: createdAt,
-    });
-
-    return payment;
-  }
-
-  /**
-   * 4. Record Supplier Stock Purchase
-   * Debits Inventory, Credits Accounts Payable (if credit) or Cash (if paid)
-   */
-  static async recordSupplierPurchase(params: {
-    supplierId: string;
-    invoiceNumber: string;
-    totalAmount: number;
-    currency: CurrencyCode;
-    isCredit: boolean;
-    paidAmount: number;
-    paymentMethod?: 'cash' | 'ecocash' | 'bank' | 'card';
-    itemsSummary: string;
-    date: string;
-    performedBy: string;
-  }): Promise<SupplierPurchase> {
-    const supp = await db.suppliers.get(params.supplierId);
-    if (!supp) throw new Error('Supplier not found');
-
-    const purchaseId = generateUUID();
-    const journalId = generateUUID();
-    const createdAt = new Date().toISOString();
-
-    const isZiG = params.currency === 'ZiG';
-    const cashAccountId = isZiG ? 'acc_cash_zig' : 'acc_cash_usd';
-    const apAccountId = isZiG ? 'acc_ap_zig' : 'acc_ap_usd';
-    const inventoryAccountId = 'acc_inventory_usd'; // standard inventory asset
-
-    const journalLines: JournalEntryLine[] = [];
-
-    // 1. Inventory Asset Debit
-    journalLines.push({
-      id: generateUUID(),
-      accountId: inventoryAccountId,
-      accountName: 'Merchandise Inventory',
-      debit: params.totalAmount,
-      credit: 0,
-      currency: params.currency,
-      description: `Stock Purchase Inv #${params.invoiceNumber} from ${supp.name}`,
-    });
-
-    // 2. Immediate Cash payment vs Accounts Payable
-    if (params.paidAmount > 0) {
-      journalLines.push({
-        id: generateUUID(),
-        accountId: cashAccountId,
-        accountName: isZiG ? 'Cash in Hand (ZiG)' : 'Cash in Hand (USD)',
-        debit: 0,
-        credit: params.paidAmount,
-        currency: params.currency,
-        description: `Cash payment to ${supp.name}`,
-      });
-    }
-
-    const creditAmount = params.totalAmount - (params.paidAmount || 0);
-    if (creditAmount > 0) {
-      journalLines.push({
-        id: generateUUID(),
-        accountId: apAccountId,
-        accountName: isZiG ? 'Accounts Payable (ZiG)' : 'Accounts Payable (USD)',
-        debit: 0,
-        credit: creditAmount,
-        currency: params.currency,
-        description: `Payable owed to ${supp.name}`,
-      });
-    }
-
-    const journalEntry: JournalEntry = {
-      id: journalId,
-      organisationId: 'org_default',
-      date: params.date,
-      reference: params.invoiceNumber || 'PUR-' + purchaseId.substring(0, 6).toUpperCase(),
-      sourceType: 'purchase',
-      sourceId: purchaseId,
-      description: `Purchase from ${supp.name}: ${params.itemsSummary}`,
-      lines: journalLines,
-      createdBy: params.performedBy,
-      createdAt,
-    };
-
-    await this.postJournalEntry(journalEntry);
-
-    // Update supplier balance if on credit
-    if (creditAmount > 0) {
-      if (params.currency === 'ZiG') {
-        await db.suppliers.update(supp.id, {
-          outstandingBalanceZiG: (supp.outstandingBalanceZiG || 0) + creditAmount,
-        });
-      } else {
-        await db.suppliers.update(supp.id, {
-          outstandingBalanceUSD: (supp.outstandingBalanceUSD || 0) + creditAmount,
-        });
-      }
-    }
-
-    const purchase: SupplierPurchase = {
-      id: purchaseId,
-      invoiceNumber: params.invoiceNumber,
-      supplierId: supp.id,
-      supplierName: supp.name,
-      date: params.date,
-      totalAmount: params.totalAmount,
-      currency: params.currency,
-      isCredit: params.isCredit,
-      paidAmount: params.paidAmount,
-      paymentMethod: params.paymentMethod,
-      itemsSummary: params.itemsSummary,
-      receivedBy: params.performedBy,
-      journalEntryId: journalId,
-      createdAt,
-      syncStatus: 'pending',
-    };
-
-    await db.supplierPurchases.put(purchase);
-    await queueSyncItem('supplier_payment', purchase.id, 'INSERT', purchase);
-
-    return purchase;
-  }
-
-  /**
-   * 5. Record Supplier Debt Payment
-   * Business pays supplier debt:
-   * Debits Accounts Payable, Credits Cash/Bank/EcoCash, Decreases Supplier Balance
-   */
-  static async recordSupplierPayment(params: {
-    supplierId: string;
-    amount: number;
-    currency: CurrencyCode;
-    paymentMethod: 'cash' | 'ecocash' | 'bank' | 'card';
-    date: string;
-    notes?: string;
-    performedBy: string;
-  }): Promise<SupplierPayment> {
-    const supp = await db.suppliers.get(params.supplierId);
-    if (!supp) throw new Error('Supplier not found');
-
-    const paymentId = generateUUID();
-    const journalId = generateUUID();
-    const createdAt = new Date().toISOString();
-
-    const isZiG = params.currency === 'ZiG';
-    const cashAccountId = isZiG ? 'acc_cash_zig' : 'acc_cash_usd';
-    const apAccountId = isZiG ? 'acc_ap_zig' : 'acc_ap_usd';
-    const cashDrawerId = isZiG ? 'cash_zig_drawer' : 'cash_usd_drawer';
-
-    const journalEntry: JournalEntry = {
-      id: journalId,
-      organisationId: 'org_default',
-      date: params.date,
-      reference: 'SPAY-' + paymentId.substring(0, 6).toUpperCase(),
-      sourceType: 'supplier_payment',
-      sourceId: paymentId,
-      description: `Payment to supplier ${supp.name}`,
-      lines: [
-        {
-          id: generateUUID(),
-          accountId: apAccountId,
-          accountName: isZiG ? 'Accounts Payable (ZiG)' : 'Accounts Payable (USD)',
-          debit: params.amount,
-          credit: 0,
-          currency: params.currency,
-          description: `Reduction of debt to ${supp.name}`,
-        },
-        {
-          id: generateUUID(),
-          accountId: cashAccountId,
-          accountName: isZiG ? 'Cash in Hand (ZiG)' : 'Cash in Hand (USD)',
-          debit: 0,
-          credit: params.amount,
-          currency: params.currency,
-          description: `Disbursed via ${params.paymentMethod}`,
-        },
-      ],
-      createdBy: params.performedBy,
-      createdAt,
-    };
-
-    await this.postJournalEntry(journalEntry);
-
-    // Update supplier balance
-    if (params.currency === 'ZiG') {
-      const newBal = Math.max(0, (supp.outstandingBalanceZiG || 0) - params.amount);
-      await db.suppliers.update(supp.id, { outstandingBalanceZiG: newBal });
-    } else {
-      const newBal = Math.max(0, (supp.outstandingBalanceUSD || 0) - params.amount);
-      await db.suppliers.update(supp.id, { outstandingBalanceUSD: newBal });
-    }
-
-    // Update drawer balance
-    const drawer = await db.cashAccounts.get(cashDrawerId);
-    if (drawer) {
-      await db.cashAccounts.update(cashDrawerId, { balance: (drawer.balance || 0) - params.amount });
-    }
-
-    const payment: SupplierPayment = {
-      id: paymentId,
-      supplierId: supp.id,
-      supplierName: supp.name,
-      amount: params.amount,
-      currency: params.currency,
-      paymentMethod: params.paymentMethod,
-      date: params.date,
-      notes: params.notes,
-      paidBy: params.performedBy,
-      journalEntryId: journalId,
-      createdAt,
-      syncStatus: 'pending',
-    };
-    await db.supplierPayments.put(payment);
-    await queueSyncItem('supplier_payment', payment.id, 'INSERT', payment);
-
-    const tx: FinancialTransaction = {
-      id: generateUUID(),
-      organisationId: 'org_default',
-      date: params.date,
-      type: 'supplier_payment',
-      category: 'Supplier Payments',
-      description: `Debt payment to supplier ${supp.name}`,
-      amount: params.amount,
-      currency: params.currency,
-      paymentMethod: params.paymentMethod,
-      accountId: cashAccountId,
-      relatedEntityId: supp.id,
-      relatedEntityName: supp.name,
-      journalEntryId: journalId,
-      createdBy: params.performedBy,
-      createdAt,
-      syncStatus: 'pending',
-    };
-    await db.transactions.put(tx);
-    await queueSyncItem('transaction', tx.id, 'INSERT', tx);
-
-    await db.auditLogs.put({
-      id: generateUUID(),
-      action: 'SUPPLIER_PAYMENT_DISBURSED',
-      entity: 'SUPPLIER',
-      entityId: supp.id,
-      performedBy: params.performedBy,
-      details: `Disbursed ${params.currency} ${params.amount.toFixed(2)} to ${supp.name}`,
-      timestamp: createdAt,
-    });
-
-    return payment;
-  }
-
-  /**
-   * 6. Reversal of an Erroneous Transaction (Immutable Ledger Rule)
-   * Instead of silently deleting, creates a balancing reversal entry and marks original as reversed
-   */
-  static async reverseTransaction(txId: string, reason: string, performedBy: string): Promise<boolean> {
-    const tx = await db.transactions.get(txId);
-    if (!tx || tx.isReversed) return false;
-
-    const originalJournal = await db.journalEntries.get(tx.journalEntryId);
-    if (!originalJournal) return false;
-
-    const reversalJournalId = generateUUID();
-    const createdAt = new Date().toISOString();
-
-    // Invert debits and credits
-    const reversalLines: JournalEntryLine[] = originalJournal.lines.map((l) => ({
-      id: generateUUID(),
-      accountId: l.accountId,
-      accountName: l.accountName,
-      debit: l.credit, // Invert
-      credit: l.debit, // Invert
-      currency: l.currency,
-      description: `REVERSAL: ${l.description || originalJournal.reference}`,
+      accountId: line.accountId,
+      accountName: line.accountName,
+      debit: line.credit,
+      credit: line.debit,
+      currency: line.currency,
+      description: `REVERSAL: ${line.description || originalJournal.description} - Reason: ${params.reason}`,
     }));
 
     const reversalJournal: JournalEntry = {
       id: reversalJournalId,
-      organisationId: 'org_default',
-      date: new Date().toISOString().split('T')[0],
+      organisationId: originalJournal.organisationId,
+      date: now.split('T')[0],
       reference: `REV-${originalJournal.reference}`,
       sourceType: 'reversal',
-      sourceId: tx.id,
-      description: `Reversal of [${originalJournal.reference}]: ${reason}`,
+      sourceId: originalTx.id,
+      description: `Reversal of ${originalJournal.reference}: ${params.reason}`,
       lines: reversalLines,
-      createdBy: performedBy,
-      createdAt,
+      createdBy: params.performedBy,
+      createdById: params.performedById,
+      createdAt: now,
     };
+    await db.journalEntries.put(reversalJournal);
+    await queueSyncItem('journal_entry', reversalJournal.id, 'INSERT', reversalJournal);
 
-    await this.postJournalEntry(reversalJournal);
-
-    // Mark original journal entry and transaction as reversed
+    // Mark original journal as reversed
     await db.journalEntries.update(originalJournal.id, {
       isReversed: true,
       reversedByEntryId: reversalJournalId,
     });
 
-    await db.transactions.update(tx.id, {
+    // Mark original transaction as reversed
+    await db.transactions.update(originalTx.id, {
       isReversed: true,
-      reversalReason: reason,
-      syncStatus: 'pending',
+      reversalReason: params.reason,
     });
 
-    // Create a reversal transaction record
-    const revTx: FinancialTransaction = {
-      id: generateUUID(),
-      organisationId: 'org_default',
-      date: new Date().toISOString().split('T')[0],
+    const reversalTx: FinancialTransaction = {
+      id: reversalTxId,
+      organisationId: originalTx.organisationId,
+      date: now.split('T')[0],
       type: 'reversal',
-      category: 'Adjustments & Reversals',
-      description: `REVERSAL of ${tx.description} (Reason: ${reason})`,
-      amount: tx.amount,
-      currency: tx.currency,
-      paymentMethod: tx.paymentMethod,
-      accountId: tx.accountId,
+      category: 'Reversals',
+      description: `Reversal of ${originalTx.description} (${params.reason})`,
+      amount: originalTx.amount,
+      currency: originalTx.currency,
+      paymentMethod: originalTx.paymentMethod,
+      accountId: originalTx.accountId,
+      relatedEntityId: originalTx.relatedEntityId,
+      relatedEntityName: originalTx.relatedEntityName,
       journalEntryId: reversalJournalId,
-      createdBy: performedBy,
-      createdAt,
+      createdBy: params.performedBy,
+      createdById: params.performedById,
+      createdAt: now,
       syncStatus: 'pending',
     };
-    await db.transactions.put(revTx);
-    await queueSyncItem('transaction', revTx.id, 'INSERT', revTx);
+    await db.transactions.put(reversalTx);
+    await queueSyncItem('transaction', reversalTx.id, 'INSERT', reversalTx);
 
-    // Audit log
-    await db.auditLogs.put({
-      id: generateUUID(),
-      action: 'TRANSACTION_REVERSED',
-      entity: 'TRANSACTION',
-      entityId: tx.id,
-      performedBy,
-      details: `Reversed ${tx.currency} ${tx.amount} (${tx.description}). Reason: ${reason}`,
-      timestamp: createdAt,
-    });
+    // Adjust account balances back
+    for (const line of reversalLines) {
+      const acc = await db.accounts.get(line.accountId);
+      if (acc) {
+        const netChange = (line.debit || 0) - (line.credit || 0);
+        await db.accounts.update(acc.id, { balance: (acc.balance || 0) + netChange });
+      }
+    }
 
-    return true;
+    return { reversalTx, reversalJournal };
   }
 }
