@@ -20,7 +20,7 @@
     "ENVIRONMENT": "production",
     "APP_NAME": "Comfort Business Operational System"
   },
-{
+
   "name": "cobos",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-11",
@@ -31,6 +31,6 @@
       "database_id": "3728407e-49be-4763-bc63-0ca451a94c96"
     }
   ]
-}
+
 
 }
