@@ -19,7 +19,7 @@
   "vars": {
     "ENVIRONMENT": "production",
     "APP_NAME": "Comfort Business Operational System"
-  }
+  },
 {
   "name": "cobos",
   "main": "src/index.ts",
