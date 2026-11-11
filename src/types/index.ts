@@ -31,6 +31,7 @@ export interface User {
   authProvider?: 'clerk_google' | 'clerk_email' | 'clerk_phone';
   avatarUrl?: string;
   pinHash?: string;
+  passwordHash?: string;
   subscriptionPlan?: 'standard' | 'professional' | 'enterprise';
   createdAt?: string;
 }

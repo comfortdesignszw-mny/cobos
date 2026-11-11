@@ -136,8 +136,8 @@ export const onRequestPost = async (context: { request: Request; env: Env }) => 
         } else if (op.entityType === 'user' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {
           statements.push(
             env.DB.prepare(
-              `INSERT OR REPLACE INTO users (id, organisation_id, name, email, phone, role, subscription_plan, avatar_url, pin_hash)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              `INSERT OR REPLACE INTO users (id, organisation_id, name, email, phone, role, subscription_plan, avatar_url, pin_hash, password_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
             ).bind(
               payload.id,
               payload.organisationId || 'org_default',
@@ -147,7 +147,8 @@ export const onRequestPost = async (context: { request: Request; env: Env }) => 
               payload.role || 'cashier',
               payload.subscriptionPlan || 'standard',
               payload.avatarUrl || null,
-              payload.pinHash || null
+              payload.pinHash || null,
+              payload.passwordHash || null
             )
           );
         } else if (op.entityType === 'business_profile' && (op.operation === 'INSERT' || op.operation === 'UPDATE')) {

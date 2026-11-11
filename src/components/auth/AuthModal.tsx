@@ -1,9 +1,21 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { AuthService, normalizePhoneToCobosEmail } from '../../services/authService';
-import type { UserRole } from '../../types';
-import { X, Lock, Mail, Phone, User as UserIcon, ShieldCheck, KeyRound, AlertCircle } from 'lucide-react';
+import { AuthService, normalizePhoneToCobosEmail, validatePasswordRules } from '../../services/authService';
+import type { UserRole, User } from '../../types';
+import {
+  X,
+  Lock,
+  Mail,
+  Phone,
+  User as UserIcon,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  AlertCircle,
+  ShieldCheck,
+} from 'lucide-react';
 import { LegalModal } from '../common/LegalModal';
+import { GoogleAccountChooserModal } from './GoogleAccountChooserModal';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -18,23 +30,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   // Form Fields
   const [identifier, setIdentifier] = useState('');
-  const [pin, setPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [fullName, setFullName] = useState('');
   const [role, setRole] = useState<UserRole>('cashier');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Legal modal state
+  // Modals state
+  const [isGoogleModalOpen, setIsGoogleModalOpen] = useState(false);
   const [legalModalType, setLegalModalType] = useState<'terms' | 'privacy' | null>(null);
 
   if (!isOpen) return null;
 
   // Real-time preview of phone conversion to @cobos.zw email
-  const phoneConversion = method === 'phone' && identifier.trim()
-    ? normalizePhoneToCobosEmail(identifier)
-    : null;
+  const phoneConversion =
+    method === 'phone' && identifier.trim() ? normalizePhoneToCobosEmail(identifier) : null;
+
+  // Real-time password validation criteria:
+  // Must be more than 8 characters mixed with numbers, letters, and special characters
+  const passwordRules = validatePasswordRules(password);
+  const passwordsMatch = confirmPassword.length > 0 && confirmPassword === password;
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,20 +60,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setErrorMsg('Please enter your email or phone number.');
       return;
     }
-    if (!pin.trim() || pin.trim().length < 4) {
-      setErrorMsg('Please enter your 4 to 6 digit security PIN.');
+    if (!password.trim()) {
+      setErrorMsg('Please enter your password.');
       return;
     }
 
     setLoading(true);
     setErrorMsg(null);
     try {
-      const user = await AuthService.signIn(identifier, pin, password);
+      const user = await AuthService.signIn(identifier, password);
       setCurrentUser(user);
       triggerRefresh();
       onClose();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Authentication failed. Please verify your credentials and PIN.');
+      setErrorMsg(err.message || 'Authentication failed. Please verify your credentials and password.');
     } finally {
       setLoading(false);
     }
@@ -67,12 +85,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setErrorMsg('Please complete all required fields.');
       return;
     }
-    if (!pin.trim() || pin.trim().length < 4) {
-      setErrorMsg('Please choose a 4 to 6 digit security PIN.');
+    if (!passwordRules.isValid) {
+      setErrorMsg(passwordRules.errors[0] || 'Password does not meet required security complexity.');
       return;
     }
-    if (pin.trim() !== confirmPin.trim()) {
-      setErrorMsg('Security PINs do not match. Please re-enter.');
+    if (!passwordsMatch) {
+      setErrorMsg('Passwords do not match. Please ensure both fields are identical.');
       return;
     }
 
@@ -83,7 +101,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         const { user } = await AuthService.signUpWithPhone({
           fullName,
           phone: identifier,
-          pin: pin.trim(),
           password,
           role,
         });
@@ -92,7 +109,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         const user = await AuthService.signUpWithEmail({
           fullName,
           email: identifier,
-          pin: pin.trim(),
           password,
           role,
         });
@@ -107,19 +123,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const user = await AuthService.signInWithGoogle();
-      setCurrentUser(user);
-      triggerRefresh();
-      onClose();
-    } catch (err: any) {
-      setErrorMsg('Google login failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+  const handleGoogleSuccess = (user: User) => {
+    setCurrentUser(user);
+    triggerRefresh();
+    setIsGoogleModalOpen(false);
+    onClose();
   };
 
   return (
@@ -131,12 +139,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-mono text-cyan-400 font-black text-lg tracking-wider">COBOS</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800">
-                  Secure Access
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-cyan-400" />
+                  <span>Secure Access</span>
                 </span>
               </div>
               <h3 className="text-sm font-semibold text-white mt-1">
-                {mode === 'signin' ? 'Verify Credentials & Security PIN' : 'Create Protected Staff Account'}
+                {mode === 'signin' ? 'Sign in to your COBOS account' : 'Create protected staff account'}
               </h3>
             </div>
             <button
@@ -147,14 +156,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </button>
           </div>
 
-          {/* Google 1-Tap Social Button with Database Profile Verification */}
+          {/* Google Social Button: Strictly "Continue with Google" */}
           <button
             type="button"
-            onClick={handleGoogleSignIn}
+            onClick={() => setIsGoogleModalOpen(true)}
             disabled={loading}
-            className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center gap-3 transition shadow-xs active:scale-[0.99]"
+            className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-200 font-semibold text-xs flex items-center justify-center gap-3 transition shadow-xs active:scale-[0.99] cursor-pointer"
           >
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -172,7 +181,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
               />
             </svg>
-            <span>Continue with Google (Verified Cloud Profile)</span>
+            <span>Continue with Google</span>
           </button>
 
           {/* Clean Divider */}
@@ -181,12 +190,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <div className="w-full border-t border-slate-800"></div>
             </div>
             <span className="relative bg-slate-900 px-3 text-[11px] text-slate-400 font-medium">
-              or enter credentials & PIN
+              or continue with email or phone
             </span>
           </div>
 
           {/* Credentials Form */}
-          <form onSubmit={mode === 'signin' ? handleSignIn : handleSignUp} className="space-y-3 text-xs">
+          <form onSubmit={mode === 'signin' ? handleSignIn : handleSignUp} className="space-y-3.5 text-xs">
             {/* Method Selector: Email vs Phone */}
             <div className="flex rounded-xl bg-slate-950 p-1 border border-slate-800">
               <button
@@ -266,45 +275,126 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               )}
             </div>
 
-            {/* MANDATORY SECURITY PIN INPUT */}
-            <div className={mode === 'signup' ? 'grid grid-cols-2 gap-2' : ''}>
-              <div>
-                <label className="text-[10px] font-semibold uppercase text-cyan-400 flex items-center gap-1 mb-1">
-                  <KeyRound className="w-3 h-3 text-cyan-400" />
-                  <span>{mode === 'signin' ? 'Security PIN (4-6 Digits)' : 'Choose PIN'}</span>
+            {/* PASSWORD INPUT WITH SHOW/HIDE TOGGLE */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] font-semibold uppercase text-slate-400 flex items-center gap-1">
+                  <Lock className="w-3 h-3 text-cyan-400" />
+                  <span>Password</span>
                 </label>
-                <div className="relative">
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    required
-                    placeholder="••••"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-cyan-500/40 text-cyan-300 font-mono tracking-widest text-center text-sm font-bold focus:outline-hidden focus:border-cyan-400"
-                  />
-                </div>
+                {mode === 'signup' && (
+                  <span className="text-[10px] text-slate-400">
+                    &gt; 8 characters (letters, numbers, symbols)
+                  </span>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  placeholder="Enter secure password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-3.5 pr-10 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm focus:outline-hidden focus:border-cyan-500 placeholder-slate-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 transition"
+                  title={showPassword ? 'Hide password' : 'View password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
 
-              {mode === 'signup' && (
-                <div>
-                  <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
-                    Confirm PIN
-                  </label>
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    required
-                    placeholder="••••"
-                    value={confirmPin}
-                    onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-cyan-300 font-mono tracking-widest text-center text-sm font-bold focus:outline-hidden focus:border-cyan-400"
-                  />
+              {/* Real-time rules checklist on signup */}
+              {mode === 'signup' && password.length > 0 && (
+                <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px] bg-slate-950/60 p-2 rounded-lg border border-slate-800">
+                  <div
+                    className={`flex items-center gap-1 ${
+                      passwordRules.hasMinLength ? 'text-emerald-400 font-semibold' : 'text-slate-500'
+                    }`}
+                  >
+                    <span>{passwordRules.hasMinLength ? '✓' : '○'}</span>
+                    <span>More than 8 chars (9+)</span>
+                  </div>
+                  <div
+                    className={`flex items-center gap-1 ${
+                      passwordRules.hasLetter ? 'text-emerald-400 font-semibold' : 'text-slate-500'
+                    }`}
+                  >
+                    <span>{passwordRules.hasLetter ? '✓' : '○'}</span>
+                    <span>Includes letters</span>
+                  </div>
+                  <div
+                    className={`flex items-center gap-1 ${
+                      passwordRules.hasNumber ? 'text-emerald-400 font-semibold' : 'text-slate-500'
+                    }`}
+                  >
+                    <span>{passwordRules.hasNumber ? '✓' : '○'}</span>
+                    <span>Includes numbers</span>
+                  </div>
+                  <div
+                    className={`flex items-center gap-1 ${
+                      passwordRules.hasSpecial ? 'text-emerald-400 font-semibold' : 'text-slate-500'
+                    }`}
+                  >
+                    <span>{passwordRules.hasSpecial ? '✓' : '○'}</span>
+                    <span>Special character (!@#)</span>
+                  </div>
                 </div>
               )}
             </div>
+
+            {/* CONFIRM PASSWORD INPUT (ON SIGNUP) WITH REAL-TIME MATCH MONITORING */}
+            {mode === 'signup' && (
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-slate-400 block mb-1">
+                  Confirm Password
+                </label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    placeholder="Re-enter password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className={`w-full pl-3.5 pr-10 py-2 rounded-xl bg-slate-950 border text-white text-sm focus:outline-hidden placeholder-slate-500 ${
+                      confirmPassword.length > 0
+                        ? passwordsMatch
+                          ? 'border-emerald-500/80 focus:border-emerald-400'
+                          : 'border-rose-500/80 focus:border-rose-400'
+                        : 'border-slate-700 focus:border-cyan-500'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 transition"
+                    title={showConfirmPassword ? 'Hide password' : 'View password'}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {/* Real-time match status */}
+                {confirmPassword.length > 0 && (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+                    {passwordsMatch ? (
+                      <div className="flex items-center gap-1 text-emerald-400 font-semibold">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>✓ Passwords match</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-rose-400 font-medium">
+                        <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                        <span>Passwords do not match yet</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {mode === 'signup' && (
               <div>
@@ -333,10 +423,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full py-2.5 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs shadow-md transition active:scale-[0.99]"
+              disabled={loading || (mode === 'signup' && (!passwordRules.isValid || !passwordsMatch))}
+              className="w-full py-2.5 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold text-xs shadow-md transition active:scale-[0.99] cursor-pointer"
             >
-              {loading ? 'Verifying Credentials...' : mode === 'signin' ? 'Verify PIN & Authorize' : 'Create Protected Account'}
+              {loading
+                ? 'Authenticating...'
+                : mode === 'signin'
+                ? 'Sign In with Password'
+                : 'Create Account'}
             </button>
           </form>
 
@@ -351,7 +445,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     setMode('signup');
                     setErrorMsg(null);
                   }}
-                  className="text-cyan-400 hover:underline font-semibold"
+                  className="text-cyan-400 hover:underline font-semibold cursor-pointer"
                 >
                   Create Account
                 </button>
@@ -365,7 +459,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     setMode('signin');
                     setErrorMsg(null);
                   }}
-                  className="text-cyan-400 hover:underline font-semibold"
+                  className="text-cyan-400 hover:underline font-semibold cursor-pointer"
                 >
                   Sign In
                 </button>
@@ -378,7 +472,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <button
               type="button"
               onClick={() => setLegalModalType('terms')}
-              className="hover:text-cyan-400 transition underline underline-offset-2"
+              className="hover:text-cyan-400 transition underline underline-offset-2 cursor-pointer"
             >
               Terms of Service
             </button>
@@ -386,13 +480,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <button
               type="button"
               onClick={() => setLegalModalType('privacy')}
-              className="hover:text-cyan-400 transition underline underline-offset-2"
+              className="hover:text-cyan-400 transition underline underline-offset-2 cursor-pointer"
             >
               Privacy Policy
             </button>
           </div>
         </div>
       </div>
+
+      {/* Google Account Chooser & Auth Popup Modal */}
+      <GoogleAccountChooserModal
+        isOpen={isGoogleModalOpen}
+        onClose={() => {
+          setIsGoogleModalOpen(false);
+          setErrorMsg('Google Sign-In cancelled. Please select or log into a valid Google account to continue.');
+        }}
+        onSuccess={handleGoogleSuccess}
+      />
 
       <LegalModal
         type={legalModalType}

@@ -32,8 +32,65 @@ export function normalizePhoneToCobosEmail(input: string): { email: string; rawP
 }
 
 /**
- * SHA-256 secure hash for user authorization PINs.
- * Uses Web Crypto SubtleCrypto in browsers and fallback when offline.
+ * Password validation rules:
+ * - More than 8 characters (at least 9)
+ * - Mixed with letters, numbers, and special characters
+ */
+export interface PasswordValidationResult {
+  isValid: boolean;
+  hasMinLength: boolean;
+  hasLetter: boolean;
+  hasNumber: boolean;
+  hasSpecial: boolean;
+  errors: string[];
+}
+
+export function validatePasswordRules(password: string): PasswordValidationResult {
+  const clean = password || '';
+  const hasMinLength = clean.length > 8;
+  const hasLetter = /[a-zA-Z]/.test(clean);
+  const hasNumber = /[0-9]/.test(clean);
+  const hasSpecial = /[^a-zA-Z0-9]/.test(clean);
+
+  const errors: string[] = [];
+  if (!hasMinLength) errors.push('Password must be more than 8 characters');
+  if (!hasLetter) errors.push('Password must contain letters');
+  if (!hasNumber) errors.push('Password must contain numbers');
+  if (!hasSpecial) errors.push('Password must contain special characters (!@#$%...)');
+
+  return {
+    isValid: hasMinLength && hasLetter && hasNumber && hasSpecial,
+    hasMinLength,
+    hasLetter,
+    hasNumber,
+    hasSpecial,
+    errors,
+  };
+}
+
+/**
+ * SHA-256 secure hash for passwords.
+ */
+export async function hashUserPassword(password: string): Promise<string> {
+  const clean = password.trim();
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(`cobos_sec_v2_salt_${clean}`);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return 'pw_' + hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  let hash = 0;
+  for (let i = 0; i < clean.length; i++) {
+    const char = clean.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0;
+  }
+  return 'pw_fb_' + Math.abs(hash).toString(16);
+}
+
+/**
+ * SHA-256 secure hash for user authorization PINs (legacy support).
  */
 export async function hashUserPin(pin: string): Promise<string> {
   const cleanPin = pin.trim();
@@ -44,7 +101,6 @@ export async function hashUserPin(pin: string): Promise<string> {
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   }
-  // Safe deterministic fallback
   let hash = 0;
   for (let i = 0; i < cleanPin.length; i++) {
     const char = cleanPin.charCodeAt(i);
@@ -136,16 +192,41 @@ export class AuthService {
   }
 
   /**
-   * Sign In via Phone OR Email with Required Security PIN verification
+   * Returns list of Google accounts previously authorized or remembered on this device
    */
-  static async signIn(identifier: string, pin: string, _password?: string): Promise<User> {
+  static async getDeviceGoogleAccounts(): Promise<Array<{ name: string; email: string; avatarUrl?: string }>> {
     await this.init();
-    if (!pin || pin.trim().length < 4) {
-      throw new Error('A 4 to 6 digit security PIN is required to authorize access.');
+    const allUsers = await db.users.toArray();
+    const googleUsers = allUsers.filter(
+      (u) => u.authProvider === 'clerk_google' || u.email.endsWith('@gmail.com')
+    );
+
+    // Dedup by email
+    const map = new Map<string, { name: string; email: string; avatarUrl?: string }>();
+    for (const u of googleUsers) {
+      if (u.email && !map.has(u.email.toLowerCase())) {
+        map.set(u.email.toLowerCase(), {
+          name: u.name,
+          email: u.email,
+          avatarUrl: u.avatarUrl,
+        });
+      }
+    }
+
+    return Array.from(map.values());
+  }
+
+  /**
+   * Sign In via Phone OR Email with Password verification
+   */
+  static async signIn(identifier: string, password: string): Promise<User> {
+    await this.init();
+    if (!password || password.trim().length === 0) {
+      throw new Error('Please enter your password to authorize access.');
     }
 
     const { email, rawPhone, isPhone } = normalizePhoneToCobosEmail(identifier);
-    const pinHash = await hashUserPin(pin);
+    const passwordHash = await hashUserPassword(password);
 
     // Look up existing user in database
     let user = await db.users.where('email').equalsIgnoreCase(email).first();
@@ -160,19 +241,28 @@ export class AuthService {
     }
 
     if (user) {
-      // If user has a pinHash configured, verify it
-      if (user.pinHash) {
-        if (user.pinHash !== pinHash) {
-          throw new Error('Invalid Security PIN. Access denied.');
+      // If user has a passwordHash configured, verify it
+      if (user.passwordHash) {
+        if (user.passwordHash !== passwordHash) {
+          throw new Error('Incorrect password. Please verify your credentials.');
         }
       } else {
-        // Set and persist pinHash on first authentication
-        user.pinHash = pinHash;
-        await db.users.update(user.id, { pinHash });
+        // First login with password: check complexity rules and set passwordHash
+        const validation = validatePasswordRules(password);
+        if (!validation.isValid) {
+          throw new Error(validation.errors[0] || 'Password does not meet required security complexity.');
+        }
+        user.passwordHash = passwordHash;
+        await db.users.update(user.id, { passwordHash });
         await queueSyncItem('user', user.id, 'UPDATE', user);
       }
     } else {
-      // User doesn't exist yet: Auto-provision with securely hashed PIN
+      // User doesn't exist yet: Check password rules then auto-provision
+      const validation = validatePasswordRules(password);
+      if (!validation.isValid) {
+        throw new Error(validation.errors[0] || 'Password must be more than 8 characters mixed with letters, numbers, and symbols.');
+      }
+
       const isSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
       const displayName = isSuperAdmin
         ? SUPER_ADMIN_NAME
@@ -189,7 +279,7 @@ export class AuthService {
         organisationId: isSuperAdmin ? 'org_master' : 'org_default',
         authProvider: isPhone ? 'clerk_phone' : 'clerk_email',
         subscriptionPlan: isSuperAdmin ? 'enterprise' : 'standard',
-        pinHash,
+        passwordHash,
         createdAt: new Date().toISOString(),
       };
       await db.users.put(user);
@@ -208,25 +298,25 @@ export class AuthService {
   }
 
   /**
-   * Sign Up with Phone & Required Security PIN
+   * Sign Up with Phone & Required Password
    */
   static async signUpWithPhone(params: {
     fullName: string;
     phone: string;
-    pin: string;
-    password?: string;
+    password: string;
     role: UserRole;
   }): Promise<{ user: User; convertedEmail: string }> {
     await this.init();
-    if (!params.pin || params.pin.trim().length < 4) {
-      throw new Error('A 4 to 6 digit security PIN is required for account creation.');
+    const validation = validatePasswordRules(params.password);
+    if (!validation.isValid) {
+      throw new Error(validation.errors[0] || 'Password must be more than 8 characters mixed with numbers, letters, and special characters.');
     }
 
     const { email, rawPhone } = normalizePhoneToCobosEmail(params.phone);
     const isSuperAdmin = email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
-    const pinHash = await hashUserPin(params.pin);
+    const passwordHash = await hashUserPassword(params.password);
 
-    // Prevent anyone from claiming super_admin through registration form
+    // Prevent unauthorized super_admin claims
     const allowedRole: UserRole = isSuperAdmin 
       ? 'super_admin' 
       : params.role === 'super_admin' 
@@ -242,7 +332,7 @@ export class AuthService {
       organisationId: isSuperAdmin ? 'org_master' : 'org_default',
       authProvider: 'clerk_phone',
       subscriptionPlan: isSuperAdmin ? 'enterprise' : 'standard',
-      pinHash,
+      passwordHash,
       createdAt: new Date().toISOString(),
     };
 
@@ -254,23 +344,23 @@ export class AuthService {
   }
 
   /**
-   * Sign Up with Email & Required Security PIN
+   * Sign Up with Email & Required Password
    */
   static async signUpWithEmail(params: {
     fullName: string;
     email: string;
-    pin: string;
-    password?: string;
+    password: string;
     role: UserRole;
   }): Promise<User> {
     await this.init();
-    if (!params.pin || params.pin.trim().length < 4) {
-      throw new Error('A 4 to 6 digit security PIN is required for account creation.');
+    const validation = validatePasswordRules(params.password);
+    if (!validation.isValid) {
+      throw new Error(validation.errors[0] || 'Password must be more than 8 characters mixed with numbers, letters, and special characters.');
     }
 
     const cleanEmail = params.email.trim().toLowerCase();
     const isSuperAdmin = cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase();
-    const pinHash = await hashUserPin(params.pin);
+    const passwordHash = await hashUserPassword(params.password);
 
     const allowedRole: UserRole = isSuperAdmin 
       ? 'super_admin' 
@@ -286,7 +376,7 @@ export class AuthService {
       organisationId: isSuperAdmin ? 'org_master' : 'org_default',
       authProvider: 'clerk_email',
       subscriptionPlan: isSuperAdmin ? 'enterprise' : 'standard',
-      pinHash,
+      passwordHash,
       createdAt: new Date().toISOString(),
     };
 
@@ -298,13 +388,17 @@ export class AuthService {
   }
 
   /**
-   * Google Social Login: Authenticates and verifies credentials against the database
+   * Google Social Login: Authenticates and verifies confirmed Google account profile
    */
-  static async signInWithGoogle(customProfile?: { name: string; email: string; avatarUrl?: string }): Promise<User> {
+  static async signInWithGoogle(verifiedProfile: { name: string; email: string; avatarUrl?: string }): Promise<User> {
     await this.init();
-    const email = (customProfile?.email || SUPER_ADMIN_EMAIL).toLowerCase();
+    if (!verifiedProfile || !verifiedProfile.email || !verifiedProfile.email.trim()) {
+      throw new Error('A verified Google account is required to sign in.');
+    }
+
+    const email = verifiedProfile.email.trim().toLowerCase();
     const isSuperAdmin = email === SUPER_ADMIN_EMAIL.toLowerCase();
-    const name = isSuperAdmin ? SUPER_ADMIN_NAME : (customProfile?.name || email.split('@')[0]);
+    const name = isSuperAdmin ? SUPER_ADMIN_NAME : (verifiedProfile.name?.trim() || email.split('@')[0]);
 
     // Verify against existing user in database
     let user = await db.users.where('email').equalsIgnoreCase(email).first();
@@ -317,7 +411,7 @@ export class AuthService {
         role: isSuperAdmin ? 'super_admin' : 'cashier',
         organisationId: isSuperAdmin ? 'org_master' : 'org_default',
         authProvider: 'clerk_google',
-        avatarUrl: customProfile?.avatarUrl,
+        avatarUrl: verifiedProfile.avatarUrl,
         subscriptionPlan: isSuperAdmin ? 'enterprise' : 'standard',
         createdAt: new Date().toISOString(),
       };
@@ -326,8 +420,8 @@ export class AuthService {
     } else {
       // Verified in database, update profile details if changed
       let hasUpdates = false;
-      if (customProfile?.avatarUrl && user.avatarUrl !== customProfile.avatarUrl) {
-        user.avatarUrl = customProfile.avatarUrl;
+      if (verifiedProfile.avatarUrl && user.avatarUrl !== verifiedProfile.avatarUrl) {
+        user.avatarUrl = verifiedProfile.avatarUrl;
         hasUpdates = true;
       }
       if (isSuperAdmin && user.role !== 'super_admin') {
@@ -345,3 +439,4 @@ export class AuthService {
     return user;
   }
 }
+

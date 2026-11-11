@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS users (
     subscription_plan TEXT DEFAULT 'standard',
     avatar_url TEXT,
     pin_hash TEXT,
+    password_hash TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (organisation_id) REFERENCES organisations(id)
 );
