@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { db } from '../../db/cobosDb';
 import { generateUUID, queueSyncItem } from '../../services/accountingEngine';
+import { GuestLimitService } from '../../services/guestLimitService';
 import { BarcodeScannerModal } from '../common/BarcodeScannerModal';
 import { compressImageFile } from '../../utils/imageCompressor';
 import type { Product, StockMovement, CurrencyCode, StockMovementType, InventoryItemType } from '../../types';
@@ -20,10 +21,11 @@ import {
   Camera,
   Image as ImageIcon,
   Wrench,
+  Lock,
 } from 'lucide-react';
 
 export const InventoryModule: React.FC = () => {
-  const { activeCurrency, activeUser, triggerRefresh, refreshKey } = useApp();
+  const { activeCurrency, activeUser, currentUser, openNudge, triggerRefresh, refreshKey } = useApp();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
@@ -111,7 +113,15 @@ export const InventoryModule: React.FC = () => {
     }
   };
 
-  const openNewProductModal = () => {
+  const openNewProductModal = async () => {
+    if (!currentUser) {
+      const { allowed, count } = await GuestLimitService.checkCanAddProduct();
+      if (!allowed) {
+        openNudge('limit_inventory', count);
+        return;
+      }
+    }
+
     setEditingProduct(null);
     setItemType('product');
     setName('');
@@ -149,6 +159,15 @@ export const InventoryModule: React.FC = () => {
 
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!editingProduct && !currentUser) {
+      const { allowed, count } = await GuestLimitService.checkCanAddProduct();
+      if (!allowed) {
+        openNudge('limit_inventory', count);
+        return;
+      }
+    }
+
     const now = new Date().toISOString();
 
     const productPayload: Product = {
@@ -185,6 +204,11 @@ export const InventoryModule: React.FC = () => {
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <Boxes className="w-5 h-5 text-cyan-400" />
             <span>Inventory & Services Management</span>
+            {!currentUser && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950/80 border border-amber-700/60 text-amber-300">
+                Guest Limit: Max 20 Products
+              </span>
+            )}
           </h2>
           <p className="text-xs text-slate-400">
             Catalog, stock adjustments, and service rate management.

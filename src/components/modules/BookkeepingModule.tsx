@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { db } from '../../db/cobosDb';
 import { AccountingEngine } from '../../services/accountingEngine';
+import { GuestLimitService } from '../../services/guestLimitService';
 import type { FinancialTransaction, Account, CurrencyCode } from '../../types';
 import {
   BookOpen,
@@ -23,6 +24,8 @@ export const BookkeepingModule: React.FC = () => {
   const {
     activeCurrency,
     activeUser,
+    currentUser,
+    openNudge,
     hasPermission,
     setJournalViewId,
     triggerRefresh,
@@ -74,6 +77,14 @@ export const BookkeepingModule: React.FC = () => {
     if (expenseAmount <= 0) {
       alert('Expense amount must be greater than zero.');
       return;
+    }
+
+    if (!currentUser) {
+      const { allowed, count } = await GuestLimitService.checkCanTransact();
+      if (!allowed) {
+        openNudge('limit_transactions', count);
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -151,10 +162,15 @@ export const BookkeepingModule: React.FC = () => {
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-cyan-400" />
             <span>Digital Bookkeeping & General Ledger</span>
+            {!currentUser && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-950/80 border border-amber-700/60 text-amber-300">
+                Guest Limit: Max 20 Tx / Day
+              </span>
+            )}
           </h2>
           <p className="text-xs text-slate-400">
             Immutable transaction records, double-entry audit vouchers, and expense recording.
-            {activeUser.role === 'cashier' && !isSuperAdmin && (
+            {activeUser.role === 'cashier' && !isSuperAdmin && currentUser && (
               <span className="text-amber-400 ml-1 font-semibold">
                 (Cashier Mode: Displaying your own personal sales & expenses)
               </span>

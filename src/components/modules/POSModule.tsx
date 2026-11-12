@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { db } from '../../db/cobosDb';
 import { AccountingEngine } from '../../services/accountingEngine';
 import { BarcodeScannerModal } from '../common/BarcodeScannerModal';
+import { GuestLimitService } from '../../services/guestLimitService';
 import type { Product, Customer, SaleItem, CurrencyCode, SalePayment } from '../../types';
 import {
   Search,
@@ -33,6 +34,7 @@ export const POSModule: React.FC = () => {
     triggerRefresh,
     refreshKey,
     profile,
+    openNudge,
   } = useApp();
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -171,10 +173,14 @@ export const POSModule: React.FC = () => {
 
   // Process checkout
   const handleCheckout = async () => {
+    // If Guest, check 20 daily transaction limit
     if (!currentUser) {
-      setIsAuthModalOpen(true);
-      setErrorMsg('Authentication Required: Please Login to COBOS to complete sales.');
-      return;
+      const { allowed, count } = await GuestLimitService.checkCanTransact();
+      if (!allowed) {
+        openNudge('limit_transactions', count);
+        setErrorMsg(`Daily Guest Limit Reached (${count}/20 transactions). Sign up to access seamless transactions.`);
+        return;
+      }
     }
 
     if (cart.length === 0) {
@@ -244,6 +250,14 @@ export const POSModule: React.FC = () => {
       clearCart();
       setReceiptModalData(sale);
       triggerRefresh();
+
+      // For guests: periodic nudge after recording sales
+      if (!currentUser) {
+        const todayCount = await GuestLimitService.getTodayTransactionCount();
+        if (todayCount % 5 === 0) {
+          openNudge('periodic', todayCount);
+        }
+      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to complete transaction.');
     } finally {
@@ -261,20 +275,17 @@ export const POSModule: React.FC = () => {
             <span>Point of Sale Terminal</span>
           </h2>
           <p className="text-xs text-slate-400">
-            {currentUser ? (
-              <>
-                Cashier: <strong className="text-cyan-300">{currentUser.name}</strong> • Currency:{' '}
-              </>
-            ) : (
+            Cashier: <strong className="text-cyan-300">{currentUser ? currentUser.name : 'Guest User (20 tx/day limit)'}</strong> • Currency:{' '}
+            <strong className="text-white font-mono">{activeCurrency}</strong>
+            {!currentUser && (
               <button
                 type="button"
-                onClick={() => setIsAuthModalOpen(true)}
-                className="text-cyan-400 font-semibold hover:underline inline-flex items-center gap-1 cursor-pointer mr-2"
+                onClick={() => openNudge('periodic')}
+                className="ml-2 text-cyan-400 underline font-semibold cursor-pointer"
               >
-                <span>Login required to sale</span> •
+                Sign up for unlimited
               </button>
             )}
-            <strong className="text-white font-mono">{activeCurrency}</strong>
           </p>
         </div>
 

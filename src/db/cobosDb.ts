@@ -17,6 +17,7 @@ import type {
   CashReconciliation,
   SyncQueueItem,
   AuditLog,
+  SubscriptionPaymentRequest,
 } from '../types';
 
 export class CobosDatabase extends Dexie {
@@ -37,11 +38,12 @@ export class CobosDatabase extends Dexie {
   cashReconciliations!: Table<CashReconciliation, string>;
   syncQueue!: Table<SyncQueueItem, string>;
   auditLogs!: Table<AuditLog, string>;
+  subscriptionRequests!: Table<SubscriptionPaymentRequest, string>;
 
   constructor() {
     super('cobos_offline_db');
 
-    this.version(3).stores({
+    this.version(4).stores({
       users: 'id, email, phone, role, organisationId',
       businessProfiles: 'id',
       accounts: 'id, code, type, currency',
@@ -59,6 +61,7 @@ export class CobosDatabase extends Dexie {
       cashReconciliations: 'id, accountId, date',
       syncQueue: 'id, entityType, status, timestamp, retryCount',
       auditLogs: 'id, entity, action, timestamp',
+      subscriptionRequests: 'id, organisationId, status, submittedAt',
     });
   }
 }

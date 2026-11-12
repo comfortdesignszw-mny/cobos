@@ -33,6 +33,7 @@ export interface User {
   pinHash?: string;
   passwordHash?: string;
   subscriptionPlan?: 'standard' | 'professional' | 'enterprise';
+  subscriptionExpiresAt?: string;
   createdAt?: string;
 }
 
@@ -49,6 +50,7 @@ export interface BusinessProfile {
   taxNumber?: string;
   logoUrl?: string;
   subscriptionPlan?: 'standard' | 'professional' | 'enterprise';
+  subscriptionExpiresAt?: string;
   defaultCurrency: CurrencyCode;
   supportedCurrencies: CurrencyCode[];
   exchangeRates: {
@@ -58,6 +60,27 @@ export interface BusinessProfile {
     ZAR: number;
   };
   receiptFooter: string;
+}
+
+export interface SubscriptionPaymentRequest {
+  id: string;
+  organisationId: string;
+  businessName: string;
+  applicantEmail: string;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+  plan: 'standard' | 'professional' | 'enterprise';
+  requestedPlan?: 'standard' | 'professional' | 'enterprise';
+  paymentMethod: 'ecocash' | 'cash' | 'bank_transfer';
+  referenceNumber: string;
+  amount: number;
+  currency: CurrencyCode;
+  submittedAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+  proofNotes?: string;
+  approvedAt?: string;
+  approvedBy?: string;
 }
 
 // Accounting & Chart of Accounts

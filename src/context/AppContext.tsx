@@ -44,6 +44,14 @@ export interface AppContextType {
   setJournalViewId: (id: string | null) => void;
   isSuperAdmin: boolean;
   hasPermission: (permission: 'view_profit' | 'reverse_tx' | 'manage_settings' | 'manage_inventory' | 'pos_sale' | 'view_reports' | 'upgrade_subscriptions' | 'manage_all_companies') => boolean;
+  sessionExpiredMsg: string | null;
+  clearSessionExpiredMsg: () => void;
+  isNudgeModalOpen: boolean;
+  setIsNudgeModalOpen: (open: boolean) => void;
+  nudgeReason: 'limit_transactions' | 'limit_inventory' | 'periodic' | null;
+  nudgeCount?: number;
+  openNudge: (reason?: 'limit_transactions' | 'limit_inventory' | 'periodic', count?: number) => void;
+  closeNudge: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -58,6 +66,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [receiptModalData, setReceiptModalData] = useState<Sale | null>(null);
   const [journalViewId, setJournalViewId] = useState<string | null>(null);
 
+  // Inactivity auto-logout state
+  const [sessionExpiredMsg, setSessionExpiredMsg] = useState<string | null>(null);
+
+  // Guest sign up nudge popup state
+  const [isNudgeModalOpen, setIsNudgeModalOpen] = useState(false);
+  const [nudgeReason, setNudgeReason] = useState<'limit_transactions' | 'limit_inventory' | 'periodic' | null>(null);
+  const [nudgeCount, setNudgeCount] = useState<number | undefined>(undefined);
+
   const [syncState, setSyncState] = useState({
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
     isSyncing: false,
@@ -70,6 +86,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const activeRole: UserRole = currentUser ? currentUser.role : 'cashier';
   const isSuperAdmin = currentUser !== null && (currentUser.role === 'super_admin' || currentUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase());
   const activeUser: User = currentUser || ANONYMOUS_GUEST_USER;
+
+  const openNudge = (reason: 'limit_transactions' | 'limit_inventory' | 'periodic' = 'periodic', count?: number) => {
+    setNudgeReason(reason);
+    setNudgeCount(count);
+    setIsNudgeModalOpen(true);
+  };
+
+  const closeNudge = () => {
+    setIsNudgeModalOpen(false);
+    setNudgeReason(null);
+  };
+
+  const clearSessionExpiredMsg = () => {
+    setSessionExpiredMsg(null);
+  };
+
+  // Inactivity auto-logout: 20 minutes (20 * 60 * 1000 = 1,200,000ms)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let timer: NodeJS.Timeout;
+    const INACTIVITY_LIMIT_MS = 20 * 60 * 1000; // 20 minutes
+
+    const handleUserActivity = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        AuthService.clearSession();
+        setCurrentUser(null);
+        setSessionExpiredMsg('Session Expired: You were automatically logged out after 20 minutes of inactivity to protect your financial data. Please re-authenticate.');
+        setIsAuthModalOpen(true);
+        triggerRefresh();
+      }, INACTIVITY_LIMIT_MS);
+    };
+
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    events.forEach((ev) => window.addEventListener(ev, handleUserActivity, { passive: true }));
+    handleUserActivity();
+
+    return () => {
+      clearTimeout(timer);
+      events.forEach((ev) => window.removeEventListener(ev, handleUserActivity));
+    };
+  }, [currentUser]);
+
+  // Periodic popup for guest browsing to encourage signing up for seamless transactions
+  useEffect(() => {
+    if (currentUser) return;
+
+    // Pop up periodically every 90 seconds while browsing as a guest
+    const interval = setInterval(() => {
+      setIsNudgeModalOpen((prev) => {
+        if (!prev) {
+          setNudgeReason('periodic');
+          return true;
+        }
+        return prev;
+      });
+    }, 90000);
+
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   const setActiveRole = (role: UserRole) => {
     if (!currentUser) return;
@@ -130,10 +207,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Fine-Grained Role-Based Access Control (RBAC) & Row-Level Security checks
   const hasPermission = (permission: 'view_profit' | 'reverse_tx' | 'manage_settings' | 'manage_inventory' | 'pos_sale' | 'view_reports' | 'upgrade_subscriptions' | 'manage_all_companies') => {
-    if (!currentUser) {
-      return false; // Authentication required for operational activities
-    }
     if (isSuperAdmin) return true; // Super admin has overall omni-permissions
+
+    if (!currentUser) {
+      // Guests can browse, sell in POS (up to 20/day limit), manage inventory (up to 20 items), and view reports
+      switch (permission) {
+        case 'upgrade_subscriptions':
+        case 'manage_all_companies':
+        case 'reverse_tx':
+        case 'manage_settings':
+          return false;
+        case 'pos_sale':
+        case 'manage_inventory':
+        case 'view_reports':
+        case 'view_profit':
+        default:
+          return true;
+      }
+    }
 
     switch (permission) {
       case 'upgrade_subscriptions':
@@ -185,6 +276,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setJournalViewId,
         isSuperAdmin,
         hasPermission,
+        sessionExpiredMsg,
+        clearSessionExpiredMsg,
+        isNudgeModalOpen,
+        setIsNudgeModalOpen,
+        nudgeReason,
+        nudgeCount,
+        openNudge,
+        closeNudge,
       }}
     >
       {children}

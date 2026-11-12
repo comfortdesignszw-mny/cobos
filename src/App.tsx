@@ -14,6 +14,7 @@ import { ReceiptModal } from './components/common/ReceiptModal';
 import { JournalViewModal } from './components/accounting/JournalViewModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { LegalModal } from './components/common/LegalModal';
+import { SignUpNudgeModal } from './components/common/SignUpNudgeModal';
 
 import { DashboardModule } from './components/modules/DashboardModule';
 import { POSModule } from './components/modules/POSModule';
@@ -24,16 +25,37 @@ import { SupplierPayablesModule } from './components/modules/SupplierPayablesMod
 import { CashFlowModule } from './components/modules/CashFlowModule';
 import { ReportsModule } from './components/modules/ReportsModule';
 import { SettingsModule } from './components/modules/SettingsModule';
-import { Lock } from 'lucide-react';
+import { Lock, AlertTriangle, X } from 'lucide-react';
 
 const MainContent: React.FC<{
   onOpenTerms: () => void;
   onOpenPrivacy: () => void;
 }> = ({ onOpenTerms, onOpenPrivacy }) => {
-  const { activeTab, currentUser, setIsAuthModalOpen } = useApp();
+  const {
+    activeTab,
+    currentUser,
+    setIsAuthModalOpen,
+    sessionExpiredMsg,
+    clearSessionExpiredMsg,
+  } = useApp();
 
   return (
     <main className="flex-1 flex flex-col justify-between overflow-y-auto h-[calc(100vh-57px)]">
+      {sessionExpiredMsg && (
+        <div className="mx-3 mt-3 sm:mx-6 sm:mt-4 p-3 rounded-2xl bg-amber-950/90 border border-amber-500/80 text-amber-200 flex items-center justify-between gap-3 text-xs shadow-xl animate-bounce">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="font-semibold">{sessionExpiredMsg}</span>
+          </div>
+          <button
+            onClick={clearSessionExpiredMsg}
+            className="p-1 rounded-lg text-amber-300 hover:text-white hover:bg-amber-900/60 transition"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {!currentUser && (
         <div className="mx-3 mt-3 sm:mx-6 sm:mt-4 p-3 rounded-2xl bg-gradient-to-r from-slate-900 via-cyan-950/40 to-slate-900 border border-cyan-800/60 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-300 shadow-lg">
           <div className="flex items-center gap-2.5">
@@ -41,9 +63,9 @@ const MainContent: React.FC<{
               <Lock className="w-4 h-4" />
             </div>
             <div>
-              <span className="font-bold text-white">Unauthenticated Session</span>
+              <span className="font-bold text-white">Guest Mode (Limited to 20 txs/day & 20 products)</span>
               <p className="text-[11px] text-slate-400">
-                Please verify credentials to authorize sales, bookkeeping, and cloud database persistence.
+                Sign up to unlock unlimited transactions, multi-user permissions, and cloud database persistence.
               </p>
             </div>
           </div>
@@ -77,6 +99,22 @@ const AuthModalContainer: React.FC = () => {
   return <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />;
 };
 
+const NudgeContainer: React.FC = () => {
+  const { isNudgeModalOpen, closeNudge, nudgeReason, nudgeCount, setIsAuthModalOpen } = useApp();
+  return (
+    <SignUpNudgeModal
+      isOpen={isNudgeModalOpen}
+      onClose={closeNudge}
+      onOpenSignUp={() => {
+        closeNudge();
+        setIsAuthModalOpen(true);
+      }}
+      reason={nudgeReason}
+      currentCount={nudgeCount}
+    />
+  );
+};
+
 export default function App() {
   const [legalModalType, setLegalModalType] = useState<'terms' | 'privacy' | null>(null);
 
@@ -96,6 +134,7 @@ export default function App() {
           <JournalViewModal />
           <OfflineIndicator />
           <AuthModalContainer />
+          <NudgeContainer />
           <LegalModal
             type={legalModalType}
             onClose={() => setLegalModalType(null)}
